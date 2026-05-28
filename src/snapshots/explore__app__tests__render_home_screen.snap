@@ -1,0 +1,26 @@
+---
+source: src/app.rs
+expression: buffer_to_string(&terminal)
+---
+                                                         __                                                   
+                                        ___  _  ______  / /___  ________                                      
+                                       / _ \| |/_/ __ \/ / __ \/ ___/ _ \                                     
+                                      /  __/>  </ /_/ / / /_/ / /  /  __/                                     
+                                      \___/_/|_/ .___/_/\____/_/   \___/                                      
+                                              /_/                                                             
+                                                                                                              
+                                                                                                              
+                                                                                                              
+                                                                                                              
+                                       h  HOME - go to home screen                                            
+                                                                                                              
+                                       g  GAME - start a new game                                             
+                                                                                                              
+                                                                                                              
+                                                                                                              
+                                                                                                              
+                                                                                                              
+                                         press q to quit; ? for help;                                         
+                                                                                                              
+                                                                                                              
+                                               Made by Jules B.

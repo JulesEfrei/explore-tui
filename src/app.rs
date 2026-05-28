@@ -160,3 +160,38 @@ impl App {
         frame.render_widget(Paragraph::new(String::from("Game screen")), frame.area());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use insta::assert_snapshot;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn buffer_to_string(terminal: &Terminal<TestBackend>) -> String {
+        let buffer = terminal.backend().buffer();
+        let area = buffer.area;
+        let mut out = String::new();
+
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                out.push_str(buffer[(x, y)].symbol());
+            }
+            out.push('\n');
+        }
+
+        out
+    }
+
+    #[test]
+    fn test_render_home() {
+        let backend = TestBackend::new(110, 24);
+        let mut terminal = Terminal::new(backend).expect("failed to create terminal");
+        let app = App::new();
+
+        terminal
+            .draw(|frame| app.render_home_screen(frame))
+            .expect("failed to draw home screen");
+
+        assert_snapshot!("render_home_screen", buffer_to_string(&terminal));
+    }
+}

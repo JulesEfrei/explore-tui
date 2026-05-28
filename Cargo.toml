@@ -5,4 +5,8 @@ edition = "2024"
 
 [dependencies]
 crossterm = "0.29.0"
+figlet-rs = "1.0.0"
 ratatui = "0.30.0"
+
+[dev-dependencies]
+insta = "1.47.2"

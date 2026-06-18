@@ -27,11 +27,19 @@ impl App {
 
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
         ratatui::run(|terminal| {
+            let mut should_render = true;
+
             loop {
-                terminal.draw(|frame| self.render(frame))?;
-                if self.handle_events()? {
+                if should_render {
+                    terminal.draw(|frame| self.render(frame))?;
+                }
+
+                let (exit, changed) = self.handle_events()?;
+                if exit {
                     break Ok(());
                 }
+
+                should_render = changed
             }
         })
     }
@@ -43,19 +51,25 @@ impl App {
         }
     }
 
-    fn handle_events(&mut self) -> std::io::Result<bool> {
+    fn handle_events(&mut self) -> std::io::Result<(bool, bool)> {
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-                KeyCode::Char('q') => return Ok(true),
-                KeyCode::Char('g') => self.state.update(Action::StartGame),
-                KeyCode::Char('h') => self.state.update(Action::GoHome),
+                KeyCode::Char('q') => return Ok((true, false)),
+                KeyCode::Char('g') => {
+                    self.state.update(Action::StartGame);
+                    return Ok((false, true));
+                }
+                KeyCode::Char('h') => {
+                    self.state.update(Action::GoHome);
+                    return Ok((false, true));
+                }
                 // handle other key events
                 _ => {}
             },
             // handle other events
             _ => {}
         }
-        Ok(false)
+        Ok((false, false))
     }
 
     fn render_home_screen(&self, frame: &mut ratatui::Frame) {

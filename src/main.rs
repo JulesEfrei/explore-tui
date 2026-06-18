@@ -1,6 +1,7 @@
 use std::error::Error;
 
 mod app;
+mod map;
 mod state;
 
 fn main() -> Result<(), Box<dyn Error>> {

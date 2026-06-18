@@ -1,5 +1,10 @@
 use std::error::Error;
 
+use crate::{
+    map::{Map, Terrain},
+    state::{Action, Screen, State},
+};
+
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use figlet_rs::FIGlet;
 use ratatui::{
@@ -8,8 +13,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Padding, Paragraph},
 };
-
-use crate::state::{Action, Screen, State};
 
 pub struct App {
     pub state: State,
@@ -157,7 +160,36 @@ impl App {
     }
 
     fn render_game_screen(&self, frame: &mut ratatui::Frame) {
-        frame.render_widget(Paragraph::new(String::from("Game screen")), frame.area());
+        let width = frame.area().width as usize;
+        let height = frame.area().height as usize;
+        let map = Map::new(width, height);
+
+        let mut lines: Vec<Line> = Vec::with_capacity(height);
+
+        for y in 0..height {
+            let mut points = Vec::with_capacity(width);
+            for x in 0..width {
+                let terrain = map.terrain_at(x, y);
+
+                let point_char = match terrain {
+                    Some(Terrain::DeepWater) => (String::from('≈'), Color::Blue),
+                    Some(Terrain::ShallowWater) => (String::from('~'), Color::Cyan),
+                    Some(Terrain::Plains) => (String::from('.'), Color::Green),
+                    Some(Terrain::Hills) => (String::from('^'), Color::Gray),
+                    Some(Terrain::Mountains) => (String::from('▲'), Color::DarkGray),
+                    None => (String::from('e'), Color::Red),
+                };
+
+                points.push(Span::styled(
+                    point_char.0,
+                    Style::default().fg(point_char.1),
+                ));
+            }
+
+            lines.push(Line::from(points));
+        }
+
+        frame.render_widget(Paragraph::new(lines), frame.area());
     }
 }
 

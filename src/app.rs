@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use crate::{
-    map::{Map, PerlinGenerator, Terrain},
+    map::{Map, Terrain},
     state::{Action, Screen, State},
 };
 
@@ -162,8 +162,7 @@ impl App {
     fn render_game_screen(&self, frame: &mut ratatui::Frame) {
         let width = frame.area().width as usize;
         let height = frame.area().height as usize;
-        let generator = PerlinGenerator::default();
-        let map = Map::from_generator(width, height, &generator);
+        let map = Map::new(width, height);
 
         let mut lines: Vec<Line> = Vec::with_capacity(height);
 

@@ -1,4 +1,4 @@
-use noise::{NoiseFn, Perlin};
+use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Terrain {
@@ -28,16 +28,13 @@ pub trait MapGenerator {
 
 #[derive(Debug, Clone)]
 pub struct PerlinGenerator {
-    frequency: f64,
-    perlin: Perlin,
+    perlin: Fbm<Perlin>,
 }
 
 impl PerlinGenerator {
     pub fn new(seed: u32) -> Self {
-        Self {
-            frequency: 0.035,
-            perlin: Perlin::new(seed),
-        }
+        let noise = Fbm::<Perlin>::new(seed).set_octaves(2).set_frequency(0.02);
+        Self { perlin: noise }
     }
 
     pub fn random_seed() -> u32 {
@@ -53,15 +50,7 @@ impl Default for PerlinGenerator {
 
 impl MapGenerator for PerlinGenerator {
     fn elevation_at(&self, x: usize, y: usize, _width: usize, _height: usize) -> f64 {
-        let nx = x as f64 * self.frequency;
-        let ny = y as f64 * self.frequency;
-
-        // Multi-octave Perlin sampling for richer terrain.
-        let base = self.perlin.get([nx, ny]);
-        let detail = self.perlin.get([nx * 2.0, ny * 2.0]) * 0.5;
-        let micro = self.perlin.get([nx * 4.0, ny * 4.0]) * 0.25;
-
-        let value = (base + detail + micro) / 1.75;
+        let value = self.perlin.get([x as f64, y as f64]);
 
         // Normalize to [0, 1].
         ((value + 1.0) * 0.5).clamp(0.0, 1.0)

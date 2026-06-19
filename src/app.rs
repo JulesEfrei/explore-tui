@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use crate::{
-    map::{Base, Map, Point, Terrain},
+    map::{DefaultMap, Map, Point},
     point,
     state::{Action, Screen, State},
 };
@@ -45,7 +45,7 @@ impl App {
         })
     }
 
-    fn render(&self, frame: &mut ratatui::Frame) {
+    fn render(&mut self, frame: &mut ratatui::Frame) {
         match self.state.current_screen() {
             Screen::Home => self.render_home_screen(frame),
             Screen::Game => self.render_game_screen(frame),
@@ -64,7 +64,11 @@ impl App {
                     self.state.update(Action::GoHome);
                     return Ok((false, true));
                 }
-                KeyCode::Char('r') => return Ok((false, true)),
+                //Reload helper
+                KeyCode::Char('r') => {
+                    self.state.update(Action::StartGame);
+                    return Ok((false, true));
+                }
                 // handle other key events
                 _ => {}
             },
@@ -175,31 +179,37 @@ impl App {
         );
     }
 
-    fn render_game_screen(&self, frame: &mut ratatui::Frame) {
+    fn render_game_screen(&mut self, frame: &mut ratatui::Frame) {
         let width = frame.area().width as usize;
         let height = frame.area().height as usize;
-        let map = Map::new(width, height);
+
+        if self.state.map.is_none() {
+            let mut map = DefaultMap::new(width, height);
+            map.initialize();
+            self.state.map = Some(map);
+        }
+
+        let map = self.state.map.as_ref().unwrap();
+        let map_width = map.size().0;
+        let map_height = map.size().1;
+        let render_width = width.min(map_width);
+        let render_height = height.min(map_height);
+
         let mut lines: Vec<Line> = Vec::with_capacity(height);
 
-        for y in 0..height {
-            let mut points = Vec::with_capacity(width);
-            for x in 0..width {
-                let terrain = map.terrain_at(point!(x, y));
-
-                let point_char = match terrain {
-                    Some(Terrain::DeepWater) => (String::from('≈'), Color::Blue),
-                    Some(Terrain::ShallowWater) => (String::from('~'), Color::Cyan),
-                    Some(Terrain::Plains) => (String::from('.'), Color::Green),
-                    Some(Terrain::Hills) => (String::from('^'), Color::Gray),
-                    Some(Terrain::Mountains) => (String::from('▲'), Color::DarkGray),
-                    Some(Terrain::Base) => (String::from('B'), Color::Magenta),
-                    None => (String::from('e'), Color::Red),
+        for y in 0..render_height {
+            let mut points = Vec::with_capacity(render_width);
+            for x in 0..render_width {
+                let pos = point!(x, y);
+                let tile = if let Some(mineral) = map.mineral_at(pos) {
+                    map.render_tile_from_mineral(mineral.kind)
+                } else if let Some(terrain) = map.terrain_at(pos) {
+                    map.render_tile_from_terrain(terrain)
+                } else {
+                    (String::from(' '), Color::Reset)
                 };
 
-                points.push(Span::styled(
-                    point_char.0,
-                    Style::default().fg(point_char.1),
-                ));
+                points.push(Span::styled(tile.0, Style::default().fg(tile.1)));
             }
 
             lines.push(Line::from(points));
@@ -213,7 +223,7 @@ impl App {
 mod tests {
     use super::*;
     use insta::assert_snapshot;
-    use ratatui::{Terminal, backend::TestBackend};
+    use ratatui::{backend::TestBackend, Terminal};
 
     fn buffer_to_string(terminal: &Terminal<TestBackend>) -> String {
         let buffer = terminal.backend().buffer();

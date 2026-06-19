@@ -1,7 +1,8 @@
 use std::error::Error;
+use std::time::Duration;
 
 use crate::{
-    map::{DefaultMap, Map, Point},
+    map::Point,
     point,
     state::{Action, Screen, State},
 };
@@ -28,21 +29,67 @@ impl App {
 
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
         ratatui::run(|terminal| {
-            let mut should_render = true;
-
             loop {
-                if should_render {
-                    terminal.draw(|frame| self.render(frame))?;
+                if self.handle_event()? {
+                    return Ok(());
                 }
 
-                let (exit, changed) = self.handle_events()?;
-                if exit {
-                    break Ok(());
+                if self.state.current_screen() == Screen::Game
+                    && let Some(ref mut world) = self.state.game_world
+                {
+                    let ticks = world.clock.advance();
+                    for _ in 0..ticks {
+                        self.game_tick();
+                    }
                 }
 
-                should_render = changed
+                terminal.draw(|frame| self.render(frame))?;
             }
         })
+    }
+
+    fn handle_event(&mut self) -> Result<bool, Box<dyn Error>> {
+        while event::poll(Duration::from_millis(1))? {
+            if let Event::Key(key) = event::read()?
+                && key.kind == KeyEventKind::Press
+            {
+                match key.code {
+                    KeyCode::Char('q') => return Ok(true),
+                    KeyCode::Char('g') => self.state.update(Action::StartGame),
+                    KeyCode::Char('h') => self.state.update(Action::GoHome),
+                    KeyCode::Char('r') => self.state.update(Action::StartGame),
+                    KeyCode::Char('m') => self.state.update(Action::ToggleMinerals),
+                    KeyCode::Char('o') => self.state.update(Action::GoOptions),
+                    KeyCode::Char('2') if self.state.current_screen() == Screen::Game => {
+                        self.state.update(Action::FocusMinerals);
+                    }
+                    KeyCode::Up if self.state.current_screen() == Screen::Options => {
+                        self.state.update(Action::SelectPreviousOption);
+                    }
+                    KeyCode::Down if self.state.current_screen() == Screen::Options => {
+                        self.state.update(Action::SelectNextOption);
+                    }
+                    KeyCode::Up if self.state.current_screen() == Screen::Game => {
+                        self.state.update(Action::ScrollMineralsUp);
+                    }
+                    KeyCode::Down if self.state.current_screen() == Screen::Game => {
+                        self.state.update(Action::ScrollMineralsDown);
+                    }
+                    KeyCode::Left if self.state.current_screen() == Screen::Options => {
+                        self.state.update(Action::DecreaseOption);
+                    }
+                    KeyCode::Right if self.state.current_screen() == Screen::Options => {
+                        self.state.update(Action::IncreaseOption);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    fn game_tick(&mut self) {
+        // placeholder — bot logic, channel processing, etc.
     }
 
     fn render(&mut self, frame: &mut ratatui::Frame) {
@@ -53,67 +100,6 @@ impl App {
         }
     }
 
-    fn handle_events(&mut self) -> std::io::Result<(bool, bool)> {
-        match event::read()? {
-            Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-                KeyCode::Char('q') => return Ok((true, false)),
-                KeyCode::Char('g') => {
-                    self.state.update(Action::StartGame);
-                    return Ok((false, true));
-                }
-                KeyCode::Char('h') => {
-                    self.state.update(Action::GoHome);
-                    return Ok((false, true));
-                }
-                //Reload helper
-                KeyCode::Char('r') => {
-                    self.state.update(Action::StartGame);
-                    return Ok((false, true));
-                }
-                KeyCode::Char('m') => {
-                    self.state.update(Action::ToggleMinerals);
-                    return Ok((false, true));
-                }
-                KeyCode::Char('o') => {
-                    self.state.update(Action::GoOptions);
-                    return Ok((false, true));
-                }
-                KeyCode::Char('2') if self.state.current_screen() == Screen::Game => {
-                    self.state.update(Action::FocusMinerals);
-                    return Ok((false, true));
-                }
-                KeyCode::Up if self.state.current_screen() == Screen::Options => {
-                    self.state.update(Action::SelectPreviousOption);
-                    return Ok((false, true));
-                }
-                KeyCode::Down if self.state.current_screen() == Screen::Options => {
-                    self.state.update(Action::SelectNextOption);
-                    return Ok((false, true));
-                }
-                KeyCode::Up if self.state.current_screen() == Screen::Game => {
-                    self.state.update(Action::ScrollMineralsUp);
-                    return Ok((false, true));
-                }
-                KeyCode::Down if self.state.current_screen() == Screen::Game => {
-                    self.state.update(Action::ScrollMineralsDown);
-                    return Ok((false, true));
-                }
-                KeyCode::Left if self.state.current_screen() == Screen::Options => {
-                    self.state.update(Action::DecreaseOption);
-                    return Ok((false, true));
-                }
-                KeyCode::Right if self.state.current_screen() == Screen::Options => {
-                    self.state.update(Action::IncreaseOption);
-                    return Ok((false, true));
-                }
-                // handle other key events
-                _ => {}
-            },
-            // handle other events
-            _ => {}
-        }
-        Ok((false, false))
-    }
 
     fn render_home_screen(&self, frame: &mut ratatui::Frame) {
         let layout = Layout::default()
@@ -308,35 +294,39 @@ impl App {
     }
 
     fn render_game_screen(&mut self, frame: &mut ratatui::Frame) {
-        let width = frame.area().width as usize;
-        let height = frame.area().height as usize;
+        let area = frame.area();
 
-        if self.state.map.is_none() {
-            let mut map = DefaultMap::new(width, height);
-            map.set_options(self.state.options);
-            map.initialize();
-            self.state.map = Some(map);
+        if self.state.game_world.is_none() {
+            self.state
+                .init_game_world(area.width as usize, area.height as usize);
         }
 
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![Constraint::Min(1), Constraint::Length(1)])
+            .split(area);
+
         let map_area = if self.state.show_minerals {
-            let layout = Layout::default()
+            let side_layout = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints(vec![Constraint::Min(0), Constraint::Length(38)])
-                .split(frame.area());
+                .split(layout[0]);
 
-            self.render_minerals_dialog(frame, layout[1]);
-            layout[0]
+            self.render_minerals_dialog(frame, side_layout[1]);
+            side_layout[0]
         } else {
-            frame.area()
+            layout[0]
         };
+        let status_area = layout[1];
 
-        let map = self.state.map.as_ref().unwrap();
+        let world = self.state.game_world.as_ref().unwrap();
+        let map = &*world.map;
         let map_width = map.size().0;
         let map_height = map.size().1;
         let render_width = (map_area.width as usize).min(map_width);
         let render_height = (map_area.height as usize).min(map_height);
 
-        let mut lines: Vec<Line> = Vec::with_capacity(map_area.height as usize);
+        let mut lines: Vec<Line> = Vec::with_capacity(render_height);
 
         for y in 0..render_height {
             let mut points = Vec::with_capacity(render_width);
@@ -357,6 +347,19 @@ impl App {
         }
 
         frame.render_widget(Paragraph::new(lines), map_area);
+
+        // Status bar
+        let clock_str = world.clock.elapsed_formatted();
+        let status = format!(" T + {} ", clock_str);
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                status,
+                Style::default().fg(Color::Gray),
+            )))
+            .style(Style::default().bg(Color::DarkGray))
+            .alignment(Alignment::Right),
+            status_area,
+        );
     }
 
     fn render_minerals_dialog(&mut self, frame: &mut ratatui::Frame, area: Rect) {
@@ -365,7 +368,8 @@ impl App {
         let mut lines = Vec::new();
         let count;
         {
-            let map = self.state.map.as_ref().unwrap();
+            let world = self.state.game_world.as_ref().unwrap();
+            let map = &*world.map;
             let minerals = map.minerals();
             count = minerals.len();
 

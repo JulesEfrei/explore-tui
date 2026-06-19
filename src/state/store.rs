@@ -1,11 +1,12 @@
 use crate::map::MapOptions;
 use crate::state::game_world::GameWorld;
-use crate::state::screen::{Action, Screen};
+use crate::state::screen::{Action, GameFocus, Screen};
 
 pub const OPTION_COUNT: usize = 4;
 
 pub struct State {
     pub current_screen: Screen,
+    pub game_focus: GameFocus,
     pub game_world: Option<GameWorld>,
     pub show_minerals: bool,
     pub minerals_scroll: u16,
@@ -18,6 +19,7 @@ impl State {
     pub fn new() -> Self {
         State {
             current_screen: Screen::Home,
+            game_focus: GameFocus::Map,
             game_world: None,
             show_minerals: true,
             minerals_scroll: 0,
@@ -31,6 +33,7 @@ impl State {
         match action {
             Action::StartGame => {
                 self.current_screen = Screen::Game;
+                self.game_focus = GameFocus::Map;
                 self.game_world = None;
                 self.show_minerals = true;
                 self.minerals_scroll = 0;
@@ -38,11 +41,13 @@ impl State {
             }
             Action::GoHome => {
                 self.current_screen = Screen::Home;
+                self.game_focus = GameFocus::Map;
                 self.game_world = None;
                 self.show_minerals = false;
             }
             Action::GoOptions => {
                 self.current_screen = Screen::Options;
+                self.game_focus = GameFocus::Map;
                 self.selected_option = 0;
             }
             Action::ToggleMinerals => {
@@ -52,12 +57,15 @@ impl State {
                 }
             }
             Action::FocusMinerals => {
-                if self.minerals_focus.is_some() {
-                    self.minerals_focus = None;
-                } else if self.minerals_count() > 0 {
+                self.game_focus = GameFocus::Minerals;
+                if self.minerals_focus.is_none() && self.minerals_count() > 0 {
                     self.show_minerals = true;
                     self.minerals_focus = Some(0);
                 }
+            }
+            Action::FocusMap => {
+                self.game_focus = GameFocus::Map;
+                self.minerals_focus = None;
             }
             Action::ScrollMineralsUp => {
                 if let Some(focus) = self.minerals_focus {
@@ -130,6 +138,10 @@ impl State {
     pub fn current_screen(&self) -> Screen {
         self.current_screen
     }
+
+    pub fn game_focus(&self) -> GameFocus {
+        self.game_focus
+    }
 }
 
 #[cfg(test)]
@@ -158,11 +170,8 @@ mod tests {
     #[test]
     fn test_update_with_go_home_action() {
         let mut state = State::new();
-        // First navigate to game screen
         state.update(Action::StartGame);
         assert_eq!(state.current_screen, Screen::Game);
-
-        // Then go back home
         state.update(Action::GoHome);
         assert_eq!(state.current_screen, Screen::Home);
     }
@@ -170,16 +179,10 @@ mod tests {
     #[test]
     fn test_multiple_updates() {
         let mut state = State::new();
-
-        // Start game
         state.update(Action::StartGame);
         assert_eq!(state.current_screen(), Screen::Game);
-
-        // Go home
         state.update(Action::GoHome);
         assert_eq!(state.current_screen(), Screen::Home);
-
-        // Start game again
         state.update(Action::StartGame);
         assert_eq!(state.current_screen(), Screen::Game);
     }

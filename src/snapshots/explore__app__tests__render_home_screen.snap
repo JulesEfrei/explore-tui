@@ -1,6 +1,5 @@
 ---
 source: src/app.rs
-assertion_line: 431
 expression: buffer_to_string(&terminal)
 ---
                                                          __                                                   
@@ -12,16 +11,16 @@ expression: buffer_to_string(&terminal)
                                                                                                               
                                                                                                               
                                                                                                               
-                                       h  HOME - go to home screen                                            
-                                                                                                              
                                        g  GAME - start a new game                                             
                                                                                                               
                                        o  OPTIONS - set game options                                          
                                                                                                               
+                                       q  QUIT - exit the application                                         
                                                                                                               
                                                                                                               
                                                                                                               
-                                         press q to quit; ? for help;                                         
+                                                                                                              
+                                           g game  o options  q quit                                          
                                                                                                               
                                                                                                               
                                      Made by Jules B. - Younes E. - Mathi

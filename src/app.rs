@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::{
     map::Point,
     point,
-    state::{Action, Screen, State},
+    state::{Action, GameFocus, Screen, State},
 };
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -53,37 +53,78 @@ impl App {
             if let Event::Key(key) = event::read()?
                 && key.kind == KeyEventKind::Press
             {
-                match key.code {
-                    KeyCode::Char('q') => return Ok(true),
-                    KeyCode::Char('g') => self.state.update(Action::StartGame),
-                    KeyCode::Char('h') => self.state.update(Action::GoHome),
-                    KeyCode::Char('r') => self.state.update(Action::StartGame),
-                    KeyCode::Char('m') => self.state.update(Action::ToggleMinerals),
-                    KeyCode::Char('o') => self.state.update(Action::GoOptions),
-                    KeyCode::Char('2') if self.state.current_screen() == Screen::Game => {
-                        self.state.update(Action::FocusMinerals);
-                    }
-                    KeyCode::Up if self.state.current_screen() == Screen::Options => {
-                        self.state.update(Action::SelectPreviousOption);
-                    }
-                    KeyCode::Down if self.state.current_screen() == Screen::Options => {
-                        self.state.update(Action::SelectNextOption);
-                    }
-                    KeyCode::Up if self.state.current_screen() == Screen::Game => {
-                        self.state.update(Action::ScrollMineralsUp);
-                    }
-                    KeyCode::Down if self.state.current_screen() == Screen::Game => {
-                        self.state.update(Action::ScrollMineralsDown);
-                    }
-                    KeyCode::Left if self.state.current_screen() == Screen::Options => {
-                        self.state.update(Action::DecreaseOption);
-                    }
-                    KeyCode::Right if self.state.current_screen() == Screen::Options => {
-                        self.state.update(Action::IncreaseOption);
-                    }
-                    _ => {}
+                if matches!(key.code, KeyCode::Char('q')) {
+                    return Ok(true);
                 }
+                return self.handle_screen_key(key.code);
             }
+        }
+        Ok(false)
+    }
+
+    fn handle_screen_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
+        match self.state.current_screen() {
+            Screen::Home => self.handle_home_key(code),
+            Screen::Options => self.handle_options_key(code),
+            Screen::Game => self.handle_game_key(code),
+        }
+    }
+
+    fn handle_home_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
+        match code {
+            KeyCode::Char('g') => self.state.update(Action::StartGame),
+            KeyCode::Char('o') => self.state.update(Action::GoOptions),
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    fn handle_options_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
+        match code {
+            KeyCode::Esc | KeyCode::Backspace => self.state.update(Action::GoHome),
+            KeyCode::Up | KeyCode::Char('k') => self.state.update(Action::SelectPreviousOption),
+            KeyCode::Down | KeyCode::Char('j') => self.state.update(Action::SelectNextOption),
+            KeyCode::Left | KeyCode::Char('h') => self.state.update(Action::DecreaseOption),
+            KeyCode::Right | KeyCode::Char('l') => self.state.update(Action::IncreaseOption),
+            KeyCode::Enter => self.state.update(Action::StartGame),
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    fn handle_game_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
+        match code {
+            KeyCode::Char('h') => self.state.update(Action::GoHome),
+            KeyCode::Char('r') => self.state.update(Action::StartGame),
+            KeyCode::Char('m') => self.state.update(Action::ToggleMinerals),
+            _ => {
+                match self.state.game_focus() {
+                    GameFocus::Map => self.handle_game_map_key(code)?,
+                    GameFocus::Minerals => self.handle_game_minerals_key(code)?,
+                };
+                ()
+            }
+        }
+        Ok(false)
+    }
+
+    fn handle_game_map_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
+        match code {
+            KeyCode::Char('1') => self.state.update(Action::FocusMap),
+            KeyCode::Char('2') => self.state.update(Action::FocusMinerals),
+            KeyCode::Up | KeyCode::Char('k') => self.state.update(Action::ScrollMineralsUp),
+            KeyCode::Down | KeyCode::Char('j') => self.state.update(Action::ScrollMineralsDown),
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    fn handle_game_minerals_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
+        match code {
+            KeyCode::Char('1') => self.state.update(Action::FocusMap),
+            KeyCode::Up | KeyCode::Char('k') => self.state.update(Action::ScrollMineralsUp),
+            KeyCode::Down | KeyCode::Char('j') => self.state.update(Action::ScrollMineralsDown),
+            _ => {}
         }
         Ok(false)
     }
@@ -139,9 +180,9 @@ impl App {
         let title_desc_gap = " - ";
 
         let actions = [
-            ("h", "HOME", "go to home screen"),
             ("g", "GAME", "start a new game"),
             ("o", "OPTIONS", "set game options"),
+            ("q", "QUIT", "exit the application"),
         ];
 
         let mut action_lines = Vec::new();
@@ -185,7 +226,7 @@ impl App {
         frame.render_widget(
             Paragraph::new(vec![
                 Line::from(Span::styled(
-                    "press q to quit; ? for help;",
+                    "g game  o options  q quit",
                     Style::default().fg(Color::Yellow),
                 )),
                 Line::raw(""),
@@ -284,7 +325,7 @@ impl App {
 
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                "↑↓ naviguer   ←→ ajuster   g jouer   h accueil",
+                "↑↓/jk naviguer  ←/h −  →/l +  enter jouer  esc/⌫ accueil",
                 Style::default().fg(Color::Yellow),
             )))
             .alignment(Alignment::Center),
@@ -460,7 +501,7 @@ impl App {
 mod tests {
     use super::*;
     use insta::assert_snapshot;
-    use ratatui::{Terminal, backend::TestBackend};
+    use ratatui::{backend::TestBackend, Terminal};
 
     fn buffer_to_string(terminal: &Terminal<TestBackend>) -> String {
         let buffer = terminal.backend().buffer();

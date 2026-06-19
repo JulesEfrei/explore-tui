@@ -6,12 +6,19 @@ pub enum Screen {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameFocus {
+    Map,
+    Minerals,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     StartGame,
     GoHome,
     GoOptions,
     ToggleMinerals,
     FocusMinerals,
+    FocusMap,
     ScrollMineralsUp,
     ScrollMineralsDown,
     SelectPreviousOption,

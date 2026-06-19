@@ -1,5 +1,6 @@
 ---
 source: src/app.rs
+assertion_line: 431
 expression: buffer_to_string(&terminal)
 ---
                                                          __                                                   
@@ -11,11 +12,11 @@ expression: buffer_to_string(&terminal)
                                                                                                               
                                                                                                               
                                                                                                               
-                                                                                                              
                                        h  HOME - go to home screen                                            
                                                                                                               
                                        g  GAME - start a new game                                             
                                                                                                               
+                                       o  OPTIONS - set game options                                          
                                                                                                               
                                                                                                               
                                                                                                               
@@ -23,4 +24,4 @@ expression: buffer_to_string(&terminal)
                                          press q to quit; ? for help;                                         
                                                                                                               
                                                                                                               
-                                               Made by Jules B.
+                                     Made by Jules B. - Younes E. - Mathi

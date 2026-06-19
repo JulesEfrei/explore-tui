@@ -21,6 +21,7 @@ pub enum MineralKind {
 pub struct Mineral {
     pub kind: MineralKind,
     pub value: u32,
+    pub max_value: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -59,19 +60,15 @@ pub struct PerlinGenerator {
 }
 
 impl PerlinGenerator {
-    pub fn new(seed: u32) -> Self {
-        let noise = Fbm::<Perlin>::new(seed).set_octaves(2).set_frequency(0.02);
+    pub fn new(seed: u32, octaves: usize, frequency: f64) -> Self {
+        let noise = Fbm::<Perlin>::new(seed)
+            .set_octaves(octaves)
+            .set_frequency(frequency);
         Self { perlin: noise }
     }
 
     pub fn random_seed() -> u32 {
         rand::random::<u32>()
-    }
-}
-
-impl Default for PerlinGenerator {
-    fn default() -> Self {
-        Self::new(Self::random_seed())
     }
 }
 
@@ -86,10 +83,30 @@ impl ElevationMapGenerator for PerlinGenerator {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct MapOptions {
+    pub energy_count: u32,
+    pub diamond_count: u32,
+    pub octaves: usize,
+    pub frequency: f64,
+}
+
+impl Default for MapOptions {
+    fn default() -> Self {
+        Self {
+            energy_count: 12,
+            diamond_count: 6,
+            octaves: 2,
+            frequency: 0.02,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DefaultMap {
     width: usize,
     height: usize,
+    options: MapOptions,
     pub elevation_map: Vec<f64>,
     terrain_map: Vec<Terrain>,
     mineral_map: Vec<Option<Mineral>>,
@@ -205,6 +222,23 @@ impl DefaultMap {
         (self.width, self.height)
     }
 
+    pub fn set_options(&mut self, options: MapOptions) {
+        self.options = options;
+    }
+
+    pub fn minerals(&self) -> Vec<(Point, Mineral)> {
+        let mut minerals = Vec::new();
+
+        for (idx, mineral) in self.mineral_map.iter().enumerate() {
+            if let Some(mineral) = mineral {
+                let coordinates = point!(idx % self.width, idx / self.width);
+                minerals.push((coordinates, *mineral));
+            }
+        }
+
+        minerals
+    }
+
     fn try_place_mineral(&mut self, kind: MineralKind, value: u32) {
         for _ in 0..10 {
             let x = rand::random_range(0..self.width);
@@ -217,7 +251,11 @@ impl DefaultMap {
                 Terrain::Plains | Terrain::Hills | Terrain::ShallowWater
             ) && self.mineral_map[idx].is_none()
             {
-                self.mineral_map[idx] = Some(Mineral { kind, value });
+                self.mineral_map[idx] = Some(Mineral {
+                    kind,
+                    value,
+                    max_value: value,
+                });
                 return;
             }
         }
@@ -230,6 +268,7 @@ impl Map for DefaultMap {
         Self {
             width,
             height,
+            options: MapOptions::default(),
             elevation_map: Vec::with_capacity(width * height),
             terrain_map: Vec::with_capacity(width * height),
             mineral_map: vec![None; width * height],
@@ -237,7 +276,11 @@ impl Map for DefaultMap {
     }
 
     fn create_elevation_map(&mut self) {
-        let generator = PerlinGenerator::default();
+        let generator = PerlinGenerator::new(
+            PerlinGenerator::random_seed(),
+            self.options.octaves,
+            self.options.frequency,
+        );
         self.elevation_map = Self::generate_elevation_map(self.width, self.height, &generator);
     }
 
@@ -254,14 +297,11 @@ impl Map for DefaultMap {
     fn create_minerals(&mut self) -> () {
         self.mineral_map = vec![None; self.width * self.height];
 
-        let nb_energy = rand::random_range(8..=15);
-        let nb_diamond = rand::random_range(4..=8);
-
-        for _ in 0..nb_energy {
+        for _ in 0..self.options.energy_count {
             self.try_place_mineral(MineralKind::Energy, rand::random_range(3..=8));
         }
 
-        for _ in 0..nb_diamond {
+        for _ in 0..self.options.diamond_count {
             self.try_place_mineral(MineralKind::Diamond, rand::random_range(2..=5));
         }
     }

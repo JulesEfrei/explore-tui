@@ -1,9 +1,16 @@
-use crate::map::DefaultMap;
+use crate::map::{DefaultMap, MapOptions};
 use crate::state::types::{Action, Screen};
+
+pub const OPTION_COUNT: usize = 4;
 
 pub struct State {
     pub current_screen: Screen,
     pub map: Option<DefaultMap>,
+    pub show_minerals: bool,
+    pub minerals_scroll: u16,
+    pub minerals_focus: Option<usize>,
+    pub options: MapOptions,
+    pub selected_option: usize,
 }
 
 impl State {
@@ -11,6 +18,11 @@ impl State {
         State {
             current_screen: Screen::Home,
             map: None,
+            show_minerals: true,
+            minerals_scroll: 0,
+            minerals_focus: None,
+            options: MapOptions::default(),
+            selected_option: 0,
         }
     }
 
@@ -19,12 +31,93 @@ impl State {
             Action::StartGame => {
                 self.current_screen = Screen::Game;
                 self.map = None;
+                self.show_minerals = true;
+                self.minerals_scroll = 0;
+                self.minerals_focus = None;
             }
             Action::GoHome => {
                 self.current_screen = Screen::Home;
                 self.map = None;
+                self.show_minerals = false;
+            }
+            Action::GoOptions => {
+                self.current_screen = Screen::Options;
+                self.selected_option = 0;
+            }
+            Action::ToggleMinerals => {
+                self.show_minerals = !self.show_minerals;
+                if !self.show_minerals {
+                    self.minerals_focus = None;
+                }
+            }
+            Action::FocusMinerals => {
+                if self.minerals_focus.is_some() {
+                    self.minerals_focus = None;
+                } else if self.minerals_count() > 0 {
+                    self.show_minerals = true;
+                    self.minerals_focus = Some(0);
+                }
+            }
+            Action::ScrollMineralsUp => {
+                if let Some(focus) = self.minerals_focus {
+                    self.minerals_focus = Some(focus.saturating_sub(1));
+                } else {
+                    self.minerals_scroll = self.minerals_scroll.saturating_sub(1);
+                }
+            }
+            Action::ScrollMineralsDown => {
+                if let Some(focus) = self.minerals_focus {
+                    self.minerals_focus = Some(focus + 1);
+                } else {
+                    self.minerals_scroll = self.minerals_scroll.saturating_add(1);
+                }
+            }
+            Action::SelectPreviousOption => {
+                self.selected_option = (self.selected_option + OPTION_COUNT - 1) % OPTION_COUNT;
+            }
+            Action::SelectNextOption => {
+                self.selected_option = (self.selected_option + 1) % OPTION_COUNT;
+            }
+            Action::DecreaseOption => self.adjust_option(false),
+            Action::IncreaseOption => self.adjust_option(true),
+        }
+    }
+
+    fn adjust_option(&mut self, increase: bool) {
+        match self.selected_option {
+            0 => {
+                self.options.energy_count = if increase {
+                    (self.options.energy_count + 1).min(40)
+                } else {
+                    self.options.energy_count.saturating_sub(1)
+                };
+            }
+            1 => {
+                self.options.diamond_count = if increase {
+                    (self.options.diamond_count + 1).min(40)
+                } else {
+                    self.options.diamond_count.saturating_sub(1)
+                };
+            }
+            2 => {
+                self.options.octaves = if increase {
+                    (self.options.octaves + 1).min(6)
+                } else {
+                    self.options.octaves.saturating_sub(1).max(1)
+                };
+            }
+            _ => {
+                self.options.frequency = if increase {
+                    (self.options.frequency + 0.005).min(0.05)
+                } else {
+                    (self.options.frequency - 0.005).max(0.005)
+                };
             }
         }
+    }
+
+    fn minerals_count(&self) -> usize {
+        self.map.as_ref().map_or(0, |map| map.minerals().len())
     }
 
     pub fn current_screen(&self) -> Screen {

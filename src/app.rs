@@ -1,7 +1,7 @@
-use std::error::Error;
+use std::{error::Error, process::exit};
 
 use crate::{
-    map::{Base, Map, Point, Terrain},
+    map::{DefaultMap, Map, Point, Terrain},
     point,
     state::{Action, Screen, State},
 };
@@ -64,6 +64,7 @@ impl App {
                     self.state.update(Action::GoHome);
                     return Ok((false, true));
                 }
+                //Reload helper
                 KeyCode::Char('r') => return Ok((false, true)),
                 // handle other key events
                 _ => {}
@@ -178,28 +179,20 @@ impl App {
     fn render_game_screen(&self, frame: &mut ratatui::Frame) {
         let width = frame.area().width as usize;
         let height = frame.area().height as usize;
-        let map = Map::new(width, height);
+
+        let mut map = DefaultMap::new(width, height);
+        map.create_elevation_map();
+        // map.create_terrain_from_elevation();
+
         let mut lines: Vec<Line> = Vec::with_capacity(height);
 
         for y in 0..height {
             let mut points = Vec::with_capacity(width);
             for x in 0..width {
                 let terrain = map.terrain_at(point!(x, y));
+                let tile = map.render_tile_from_terrain(terrain.unwrap());
 
-                let point_char = match terrain {
-                    Some(Terrain::DeepWater) => (String::from('≈'), Color::Blue),
-                    Some(Terrain::ShallowWater) => (String::from('~'), Color::Cyan),
-                    Some(Terrain::Plains) => (String::from('.'), Color::Green),
-                    Some(Terrain::Hills) => (String::from('^'), Color::Gray),
-                    Some(Terrain::Mountains) => (String::from('▲'), Color::DarkGray),
-                    Some(Terrain::Base) => (String::from('B'), Color::Magenta),
-                    None => (String::from('e'), Color::Red),
-                };
-
-                points.push(Span::styled(
-                    point_char.0,
-                    Style::default().fg(point_char.1),
-                ));
+                points.push(Span::styled(tile.0, Style::default().fg(tile.1)));
             }
 
             lines.push(Line::from(points));

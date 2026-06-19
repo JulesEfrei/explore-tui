@@ -1,4 +1,5 @@
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
+use ratatui::style::Color;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Terrain {
@@ -32,21 +33,11 @@ pub struct Base {
     coordinates: (Point, Point, Point, Point),
 }
 
-#[derive(Debug, Clone)]
-pub struct Map {
-    width: usize,
-    height: usize,
-    elevation: Vec<f64>,
-    base: Option<Base>,
-}
-
-/// Interface for any terrain generation strategy.
+/// Interface for any elevatoin generation strategy.
 ///
 /// Implement this trait for each technique (Perlin, Simplex, Worley, etc.)
-/// and call `Map::from_generator`.
-pub trait MapGenerator {
+pub trait ElevationMapGenerator {
     /// Returns an elevation value for one tile.
-    /// Implementations can use any algorithm as long as they return [0.0, 1.0].
     fn elevation_at(&self, coordinates: Point, width: usize, height: usize) -> f64;
 }
 
@@ -72,7 +63,7 @@ impl Default for PerlinGenerator {
     }
 }
 
-impl MapGenerator for PerlinGenerator {
+impl ElevationMapGenerator for PerlinGenerator {
     fn elevation_at(&self, coordinates: Point, _width: usize, _height: usize) -> f64 {
         let value = self
             .perlin
@@ -83,13 +74,39 @@ impl MapGenerator for PerlinGenerator {
     }
 }
 
-impl Map {
-    pub fn from_generator<G: MapGenerator>(width: usize, height: usize, generator: &G) -> Self {
-        let mut elevation = Vec::with_capacity(width * height);
+#[derive(Debug, Clone)]
+pub struct DefaultMap {
+    width: usize,
+    height: usize,
+    pub elevation_map: Vec<f64>,
+    terrain_map: Vec<Terrain>,
+}
+
+/// Interface for any map generation strategy
+pub trait Map {
+    fn new(width: usize, height: usize) -> Self;
+
+    fn create_elevation_map(&mut self) -> ();
+    fn create_terrain_from_elevation(&mut self) -> ();
+
+    // Map a terrain from an elevation value.
+    fn terrain_at(&self, coordinates: Point) -> Option<Terrain>;
+
+    // Override terrain at coordinates
+    fn set_terrain_at(&mut self, coordinates: Point, terrain: Terrain) -> ();
+
+    fn find_base_location(&self) -> Option<Base>;
+
+    fn generate_elevation_map<G: ElevationMapGenerator>(
+        width: usize,
+        height: usize,
+        generator: &G,
+    ) -> Vec<f64> {
+        let mut elevation_map = Vec::with_capacity(width * height);
 
         for y in 0..height {
             for x in 0..width {
-                elevation.push(
+                elevation_map.push(
                     generator
                         .elevation_at(point!(x, y), width, height)
                         .clamp(0.0, 1.0),
@@ -97,15 +114,119 @@ impl Map {
             }
         }
 
-        Self {
-            width,
-            height,
-            elevation,
-            base: None,
+        elevation_map
+    }
+
+    fn set_terrain_from_elevation(&self, elevation_point: &f64) -> Terrain {
+        match elevation_point {
+            elevation_point if *elevation_point < 0.30 => Terrain::DeepWater,
+            elevation_point if *elevation_point < 0.42 => Terrain::ShallowWater,
+            elevation_point if *elevation_point < 0.63 => Terrain::Plains,
+            elevation_point if *elevation_point < 0.82 => Terrain::Hills,
+            elevation_point if *elevation_point == 4.0 => Terrain::Base,
+            _ => Terrain::Mountains,
         }
     }
 
-    pub fn find_base_location(&self) -> Option<Base> {
+    // Render a tile from a terrain
+    fn render_tile_from_terrain(&self, terrain: Terrain) -> (String, Color) {
+        match terrain {
+            Terrain::DeepWater => (String::from('≈'), Color::Blue),
+            Terrain::ShallowWater => (String::from('~'), Color::Cyan),
+            Terrain::Plains => (String::from('.'), Color::Green),
+            Terrain::Hills => (String::from('^'), Color::Gray),
+            Terrain::Mountains => (String::from('▲'), Color::DarkGray),
+            Terrain::Base => (String::from('B'), Color::Magenta),
+        }
+    }
+}
+
+impl DefaultMap {
+    fn get_index_from_coordinates(&self, coordinates: Point) -> Option<usize> {
+        if coordinates.x < self.width && coordinates.y < self.height {
+            Some(coordinates.y * self.width + coordinates.x)
+        } else {
+            None
+        }
+    }
+
+    fn is_valid_2x2_plains_block(&self, x: usize, y: usize) -> bool {
+        if x + 1 >= self.width || y + 1 >= self.height {
+            return false;
+        }
+
+        self.terrain_at(point!(x, y)) == Some(Terrain::Plains)
+            && self.terrain_at(point!(x + 1, y)) == Some(Terrain::Plains)
+            && self.terrain_at(point!(x, y + 1)) == Some(Terrain::Plains)
+            && self.terrain_at(point!(x + 1, y + 1)) == Some(Terrain::Plains)
+    }
+
+    pub fn size(&self) -> (usize, usize) {
+        (self.width, self.height)
+    }
+}
+
+impl Map for DefaultMap {
+    /// Convenience constructor using default Perlin settings.
+    fn new(width: usize, height: usize) -> Self {
+        Self {
+            width,
+            height,
+            elevation_map: Vec::with_capacity(width * height),
+            terrain_map: Vec::with_capacity(width * height),
+        }
+    }
+
+    fn create_elevation_map(&mut self) {
+        let generator = PerlinGenerator::default();
+        let mut elevation_map: Option<Vec<f64>> = None;
+        let mut base: Option<Base> = None;
+
+        while base.is_none() {
+            elevation_map = Some(Self::generate_elevation_map(
+                self.width,
+                self.height,
+                &generator,
+            ));
+            self.elevation_map = elevation_map.unwrap();
+            self.create_terrain_from_elevation();
+            base = self.find_base_location();
+        }
+
+        self.set_terrain_at(point!(0, 0), Terrain::Base);
+        let b = base.unwrap().coordinates;
+        self.set_terrain_at(b.0, Terrain::Base);
+        self.set_terrain_at(b.1, Terrain::Base);
+        self.set_terrain_at(b.2, Terrain::Base);
+        self.set_terrain_at(b.3, Terrain::Base);
+    }
+
+    fn create_terrain_from_elevation(&mut self) {
+        let mut terrain_map: Vec<Terrain> = Vec::new();
+
+        for elevation_point in self.elevation_map.iter() {
+            terrain_map.push(self.set_terrain_from_elevation(elevation_point));
+        }
+
+        self.terrain_map = terrain_map;
+    }
+
+    fn terrain_at(&self, coordinates: Point) -> Option<Terrain> {
+        let index = self.get_index_from_coordinates(coordinates).unwrap();
+
+        if index >= self.terrain_map.len() {
+            return None;
+        }
+
+        Some(self.terrain_map[index])
+    }
+
+    fn set_terrain_at(&mut self, coordinates: Point, terrain: Terrain) {
+        let index = self.get_index_from_coordinates(coordinates).unwrap();
+        self.terrain_map[index] = terrain;
+    }
+
+    fn find_base_location(&self) -> Option<Base> {
         let center_x = self.width / 2;
         let center_y = self.height / 2;
 
@@ -177,84 +298,5 @@ impl Map {
         }
 
         None
-    }
-
-    fn is_valid_2x2_plains_block(&self, x: usize, y: usize) -> bool {
-        if x + 1 >= self.width || y + 1 >= self.height {
-            return false;
-        }
-
-        self.terrain_at(point!(x, y)) == Some(Terrain::Plains)
-            && self.terrain_at(point!(x + 1, y)) == Some(Terrain::Plains)
-            && self.terrain_at(point!(x, y + 1)) == Some(Terrain::Plains)
-            && self.terrain_at(point!(x + 1, y + 1)) == Some(Terrain::Plains)
-    }
-
-    /// Convenience constructor using default Perlin settings.
-    pub fn new(width: usize, height: usize) -> Self {
-        let generator = PerlinGenerator::default();
-        // Self::from_generator(width, height, &generator)
-
-        let mut base: Option<Base> = None;
-        let mut map: Option<Map> = None;
-
-        while base.is_none() {
-            map = Some(Self::from_generator(width, height, &generator));
-            base = map.as_ref().unwrap().find_base_location();
-        }
-
-        map.as_mut()
-            .unwrap()
-            .set_terrain(base.clone().unwrap().coordinates.0, Terrain::Base);
-        map.as_mut()
-            .unwrap()
-            .set_terrain(base.clone().unwrap().coordinates.1, Terrain::Base);
-        map.as_mut()
-            .unwrap()
-            .set_terrain(base.clone().unwrap().coordinates.2, Terrain::Base);
-        map.as_mut()
-            .unwrap()
-            .set_terrain(base.clone().unwrap().coordinates.3, Terrain::Base);
-
-        map.unwrap()
-    }
-
-    fn set_terrain(&mut self, coordinates: Point, terrain: Terrain) {
-        let index = coordinates.y * self.width + coordinates.x;
-        self.elevation[index] = match terrain {
-            Terrain::DeepWater => 0.30,
-            Terrain::ShallowWater => 0.42,
-            Terrain::Plains => 0.63,
-            Terrain::Hills => 0.82,
-            Terrain::Mountains => 1.0,
-            Terrain::Base => 4.0,
-        };
-    }
-
-    pub fn terrain_at(&self, coordinates: Point) -> Option<Terrain> {
-        self.elevation_at(coordinates).map(|h| match h {
-            h if h < 0.30 => Terrain::DeepWater,
-            h if h < 0.42 => Terrain::ShallowWater,
-            h if h < 0.63 => Terrain::Plains,
-            h if h < 0.82 => Terrain::Hills,
-            h if h == 4.0 => Terrain::Base,
-            _ => Terrain::Mountains,
-        })
-    }
-
-    pub fn size(&self) -> (usize, usize) {
-        (self.width, self.height)
-    }
-
-    pub fn elevation_at(&self, coordinates: Point) -> Option<f64> {
-        self.index(coordinates).map(|idx| self.elevation[idx])
-    }
-
-    fn index(&self, coordinates: Point) -> Option<usize> {
-        if coordinates.x < self.width && coordinates.y < self.height {
-            Some(coordinates.y * self.width + coordinates.x)
-        } else {
-            None
-        }
     }
 }

@@ -1,13 +1,16 @@
+use crate::map::DefaultMap;
 use crate::state::types::{Action, Screen};
 
 pub struct State {
     pub current_screen: Screen,
+    pub map: Option<DefaultMap>,
 }
 
 impl State {
     pub fn new() -> Self {
         State {
             current_screen: Screen::Home,
+            map: None,
         }
     }
 
@@ -15,9 +18,11 @@ impl State {
         match action {
             Action::StartGame => {
                 self.current_screen = Screen::Game;
+                self.map = None;
             }
             Action::GoHome => {
                 self.current_screen = Screen::Home;
+                self.map = None;
             }
         }
     }

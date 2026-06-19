@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::map::Map;
+use crate::map::{Map, MapOptions};
 use crate::state::clock::GameClock;
 
 pub struct GameWorld {
@@ -10,8 +10,9 @@ pub struct GameWorld {
 }
 
 impl GameWorld {
-    pub fn new(width: usize, height: usize) -> Self {
+    pub fn new(width: usize, height: usize, options: MapOptions) -> Self {
         let mut map = Map::new(width, height);
+        map.set_options(options);
         map.initialize();
         Self {
             map: Arc::new(map),

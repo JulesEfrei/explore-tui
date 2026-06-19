@@ -100,7 +100,6 @@ impl App {
         }
     }
 
-
     fn render_home_screen(&self, frame: &mut ratatui::Frame) {
         let layout = Layout::default()
             .direction(Direction::Vertical)

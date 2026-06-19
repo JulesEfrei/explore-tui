@@ -1,11 +1,12 @@
-use crate::map::{DefaultMap, MapOptions};
-use crate::state::types::{Action, Screen};
+use crate::map::MapOptions;
+use crate::state::game_world::GameWorld;
+use crate::state::screen::{Action, Screen};
 
 pub const OPTION_COUNT: usize = 4;
 
 pub struct State {
     pub current_screen: Screen,
-    pub map: Option<DefaultMap>,
+    pub game_world: Option<GameWorld>,
     pub show_minerals: bool,
     pub minerals_scroll: u16,
     pub minerals_focus: Option<usize>,
@@ -17,7 +18,7 @@ impl State {
     pub fn new() -> Self {
         State {
             current_screen: Screen::Home,
-            map: None,
+            game_world: None,
             show_minerals: true,
             minerals_scroll: 0,
             minerals_focus: None,
@@ -30,14 +31,14 @@ impl State {
         match action {
             Action::StartGame => {
                 self.current_screen = Screen::Game;
-                self.map = None;
+                self.game_world = None;
                 self.show_minerals = true;
                 self.minerals_scroll = 0;
                 self.minerals_focus = None;
             }
             Action::GoHome => {
                 self.current_screen = Screen::Home;
-                self.map = None;
+                self.game_world = None;
                 self.show_minerals = false;
             }
             Action::GoOptions => {
@@ -117,7 +118,13 @@ impl State {
     }
 
     fn minerals_count(&self) -> usize {
-        self.map.as_ref().map_or(0, |map| map.minerals().len())
+        self.game_world
+            .as_ref()
+            .map_or(0, |world| world.map.minerals().len())
+    }
+
+    pub fn init_game_world(&mut self, width: usize, height: usize) {
+        self.game_world = Some(GameWorld::new(width, height, self.options));
     }
 
     pub fn current_screen(&self) -> Screen {

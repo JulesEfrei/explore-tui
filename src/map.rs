@@ -103,7 +103,7 @@ impl Default for MapOptions {
 }
 
 #[derive(Debug, Clone)]
-pub struct DefaultMap {
+pub struct Map {
     width: usize,
     height: usize,
     options: MapOptions,
@@ -112,93 +112,7 @@ pub struct DefaultMap {
     mineral_map: Vec<Option<Mineral>>,
 }
 
-/// Interface for any map generation strategy
-pub trait Map {
-    fn new(width: usize, height: usize) -> Self;
-
-    fn create_elevation_map(&mut self) -> ();
-    fn create_terrain_from_elevation(&mut self) -> ();
-    fn create_minerals(&mut self) -> ();
-
-    fn initialize(&mut self) {
-        loop {
-            self.create_elevation_map();
-            self.create_terrain_from_elevation();
-            if let Some(base) = self.find_base_location() {
-                let b = base.coordinates;
-                self.set_terrain_at(b.0, Terrain::Base);
-                self.set_terrain_at(b.1, Terrain::Base);
-                self.set_terrain_at(b.2, Terrain::Base);
-                self.set_terrain_at(b.3, Terrain::Base);
-                break;
-            }
-        }
-        self.create_minerals();
-    }
-
-    fn mineral_at(&self, coordinates: Point) -> Option<Mineral>;
-    fn mine_at(&mut self, coordinates: Point) -> Option<MineralKind>;
-
-    // Map a terrain from an elevation value.
-    fn terrain_at(&self, coordinates: Point) -> Option<Terrain>;
-
-    // Override terrain at coordinates
-    fn set_terrain_at(&mut self, coordinates: Point, terrain: Terrain) -> ();
-
-    fn find_base_location(&self) -> Option<Base>;
-
-    fn generate_elevation_map<G: ElevationMapGenerator>(
-        width: usize,
-        height: usize,
-        generator: &G,
-    ) -> Vec<f64> {
-        let mut elevation_map = Vec::with_capacity(width * height);
-
-        for y in 0..height {
-            for x in 0..width {
-                elevation_map.push(
-                    generator
-                        .elevation_at(point!(x, y), width, height)
-                        .clamp(0.0, 1.0),
-                );
-            }
-        }
-
-        elevation_map
-    }
-
-    fn set_terrain_from_elevation(&self, elevation_point: &f64) -> Terrain {
-        match elevation_point {
-            elevation_point if *elevation_point < 0.30 => Terrain::DeepWater,
-            elevation_point if *elevation_point < 0.42 => Terrain::ShallowWater,
-            elevation_point if *elevation_point < 0.63 => Terrain::Plains,
-            elevation_point if *elevation_point < 0.82 => Terrain::Hills,
-            elevation_point if *elevation_point == 4.0 => Terrain::Base,
-            _ => Terrain::Mountains,
-        }
-    }
-
-    fn render_tile_from_mineral(&self, mineral: MineralKind) -> (String, Color) {
-        match mineral {
-            MineralKind::Energy => (String::from('E'), Color::Yellow),
-            MineralKind::Diamond => (String::from('D'), Color::Cyan),
-        }
-    }
-
-    // Render a tile from a terrain
-    fn render_tile_from_terrain(&self, terrain: Terrain) -> (String, Color) {
-        match terrain {
-            Terrain::DeepWater => (String::from('≈'), Color::Blue),
-            Terrain::ShallowWater => (String::from('~'), Color::Cyan),
-            Terrain::Plains => (String::from('.'), Color::Green),
-            Terrain::Hills => (String::from('^'), Color::Gray),
-            Terrain::Mountains => (String::from('▲'), Color::DarkGray),
-            Terrain::Base => (String::from('B'), Color::Magenta),
-        }
-    }
-}
-
-impl DefaultMap {
+impl Map {
     fn get_index_from_coordinates(&self, coordinates: Point) -> Option<usize> {
         if coordinates.x < self.width && coordinates.y < self.height {
             Some(coordinates.y * self.width + coordinates.x)
@@ -260,11 +174,74 @@ impl DefaultMap {
             }
         }
     }
-}
 
-impl Map for DefaultMap {
+    pub fn initialize(&mut self) {
+        loop {
+            self.create_elevation_map();
+            self.create_terrain_from_elevation();
+            if let Some(base) = self.find_base_location() {
+                let b = base.coordinates;
+                self.set_terrain_at(b.0, Terrain::Base);
+                self.set_terrain_at(b.1, Terrain::Base);
+                self.set_terrain_at(b.2, Terrain::Base);
+                self.set_terrain_at(b.3, Terrain::Base);
+                break;
+            }
+        }
+        self.create_minerals();
+    }
+
+    fn generate_elevation_map<G: ElevationMapGenerator>(
+        width: usize,
+        height: usize,
+        generator: &G,
+    ) -> Vec<f64> {
+        let mut elevation_map = Vec::with_capacity(width * height);
+
+        for y in 0..height {
+            for x in 0..width {
+                elevation_map.push(
+                    generator
+                        .elevation_at(point!(x, y), width, height)
+                        .clamp(0.0, 1.0),
+                );
+            }
+        }
+
+        elevation_map
+    }
+
+    fn set_terrain_from_elevation(&self, elevation_point: &f64) -> Terrain {
+        match elevation_point {
+            elevation_point if *elevation_point < 0.30 => Terrain::DeepWater,
+            elevation_point if *elevation_point < 0.42 => Terrain::ShallowWater,
+            elevation_point if *elevation_point < 0.63 => Terrain::Plains,
+            elevation_point if *elevation_point < 0.82 => Terrain::Hills,
+            elevation_point if *elevation_point == 4.0 => Terrain::Base,
+            _ => Terrain::Mountains,
+        }
+    }
+
+    pub fn render_tile_from_mineral(&self, mineral: MineralKind) -> (String, Color) {
+        match mineral {
+            MineralKind::Energy => (String::from('E'), Color::Yellow),
+            MineralKind::Diamond => (String::from('D'), Color::Cyan),
+        }
+    }
+
+    pub fn render_tile_from_terrain(&self, terrain: Terrain) -> (String, Color) {
+        match terrain {
+            Terrain::DeepWater => (String::from('≈'), Color::Blue),
+            Terrain::ShallowWater => (String::from('~'), Color::Cyan),
+            Terrain::Plains => (String::from('.'), Color::Green),
+            Terrain::Hills => (String::from('^'), Color::Gray),
+            Terrain::Mountains => (String::from('▲'), Color::DarkGray),
+            Terrain::Base => (String::from('B'), Color::Magenta),
+        }
+    }
+
     /// Convenience constructor using default Perlin settings.
-    fn new(width: usize, height: usize) -> Self {
+    pub fn new(width: usize, height: usize) -> Self {
         Self {
             width,
             height,
@@ -294,7 +271,7 @@ impl Map for DefaultMap {
         self.terrain_map = terrain_map;
     }
 
-    fn create_minerals(&mut self) -> () {
+    fn create_minerals(&mut self) {
         self.mineral_map = vec![None; self.width * self.height];
 
         for _ in 0..self.options.energy_count {
@@ -306,7 +283,7 @@ impl Map for DefaultMap {
         }
     }
 
-    fn mineral_at(&self, coordinates: Point) -> Option<Mineral> {
+    pub fn mineral_at(&self, coordinates: Point) -> Option<Mineral> {
         let idx = self.get_index_from_coordinates(coordinates)?;
         self.mineral_map[idx]
     }
@@ -325,7 +302,7 @@ impl Map for DefaultMap {
         Some(kind)
     }
 
-    fn terrain_at(&self, coordinates: Point) -> Option<Terrain> {
+    pub fn terrain_at(&self, coordinates: Point) -> Option<Terrain> {
         let index = self.get_index_from_coordinates(coordinates).unwrap();
 
         if index >= self.terrain_map.len() {

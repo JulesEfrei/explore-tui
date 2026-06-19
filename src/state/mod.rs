@@ -1,5 +1,7 @@
+mod clock;
+mod game_world;
+mod screen;
 mod store;
-mod types;
 
+pub use screen::{Action, Screen};
 pub use store::State;
-pub use types::{Action, Screen};

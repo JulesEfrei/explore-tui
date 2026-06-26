@@ -6,6 +6,7 @@ pub struct GameClock {
     accumulated: Duration,
     previous: Instant,
     tick_count: u64,
+    paused: bool,
 }
 
 const TICK_RATE_NANOS: u64 = 16_666_667; // ~60 Hz
@@ -18,10 +19,14 @@ impl GameClock {
             accumulated: Duration::ZERO,
             previous: Instant::now(),
             tick_count: 0,
+            paused: false,
         }
     }
 
     pub fn advance(&mut self) -> u32 {
+        if self.paused {
+            return 0;
+        }
         let now = Instant::now();
         let elapsed = now.duration_since(self.previous);
         self.previous = now;
@@ -40,6 +45,23 @@ impl GameClock {
 
     pub fn elapsed(&self) -> Duration {
         self.tick_rate * self.tick_count as u32
+    }
+
+    pub fn toggle_pause(&mut self) {
+        self.paused = !self.paused;
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused
+    }
+
+    pub fn advance_by(&mut self, duration: Duration) {
+        let ticks = (duration.as_nanos() / self.tick_rate.as_nanos()) as u64;
+        self.tick_count += ticks;
+    }
+
+    pub fn reset_pause(&mut self) {
+        self.paused = false;
     }
 
     pub fn elapsed_formatted(&self) -> String {

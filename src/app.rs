@@ -1,13 +1,13 @@
 use std::error::Error;
-use std::time::Duration;
+
+use crossterm::terminal;
 
 use crate::{
     map::Point,
     point,
-    state::{Action, GameFocus, Screen, State},
+    state::{Screen, State},
 };
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use figlet_rs::FIGlet;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
@@ -28,6 +28,7 @@ impl App {
     }
 
     pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
+        self.state.terminal_size = terminal::size()?;
         ratatui::run(|terminal| {
             loop {
                 if self.handle_event()? {
@@ -48,92 +49,11 @@ impl App {
         })
     }
 
-    fn handle_event(&mut self) -> Result<bool, Box<dyn Error>> {
-        while event::poll(Duration::from_millis(1))? {
-            if let Event::Key(key) = event::read()?
-                && key.kind == KeyEventKind::Press
-            {
-                if matches!(key.code, KeyCode::Char('q')) {
-                    return Ok(true);
-                }
-                return self.handle_screen_key(key.code);
-            }
-        }
-        Ok(false)
-    }
-
-    fn handle_screen_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
-        match self.state.current_screen() {
-            Screen::Home => self.handle_home_key(code),
-            Screen::Options => self.handle_options_key(code),
-            Screen::Game => self.handle_game_key(code),
-        }
-    }
-
-    fn handle_home_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
-        match code {
-            KeyCode::Char('g') => self.state.update(Action::StartGame),
-            KeyCode::Char('o') => self.state.update(Action::GoOptions),
-            _ => {}
-        }
-        Ok(false)
-    }
-
-    fn handle_options_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
-        match code {
-            KeyCode::Esc | KeyCode::Backspace => self.state.update(Action::GoHome),
-            KeyCode::Up | KeyCode::Char('k') => self.state.update(Action::SelectPreviousOption),
-            KeyCode::Down | KeyCode::Char('j') => self.state.update(Action::SelectNextOption),
-            KeyCode::Left | KeyCode::Char('h') => self.state.update(Action::DecreaseOption),
-            KeyCode::Right | KeyCode::Char('l') => self.state.update(Action::IncreaseOption),
-            KeyCode::Enter => self.state.update(Action::StartGame),
-            _ => {}
-        }
-        Ok(false)
-    }
-
-    fn handle_game_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
-        match code {
-            KeyCode::Char('h') => self.state.update(Action::GoHome),
-            KeyCode::Char('r') => self.state.update(Action::StartGame),
-            KeyCode::Char('m') => self.state.update(Action::ToggleMinerals),
-            _ => {
-                match self.state.game_focus() {
-                    GameFocus::Map => self.handle_game_map_key(code)?,
-                    GameFocus::Minerals => self.handle_game_minerals_key(code)?,
-                };
-                ()
-            }
-        }
-        Ok(false)
-    }
-
-    fn handle_game_map_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
-        match code {
-            KeyCode::Char('1') => self.state.update(Action::FocusMap),
-            KeyCode::Char('2') => self.state.update(Action::FocusMinerals),
-            KeyCode::Up | KeyCode::Char('k') => self.state.update(Action::ScrollMineralsUp),
-            KeyCode::Down | KeyCode::Char('j') => self.state.update(Action::ScrollMineralsDown),
-            _ => {}
-        }
-        Ok(false)
-    }
-
-    fn handle_game_minerals_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
-        match code {
-            KeyCode::Char('1') => self.state.update(Action::FocusMap),
-            KeyCode::Up | KeyCode::Char('k') => self.state.update(Action::ScrollMineralsUp),
-            KeyCode::Down | KeyCode::Char('j') => self.state.update(Action::ScrollMineralsDown),
-            _ => {}
-        }
-        Ok(false)
-    }
-
     fn game_tick(&mut self) {
         // placeholder — bot logic, channel processing, etc.
     }
 
-    fn render(&mut self, frame: &mut ratatui::Frame) {
+    fn render(&self, frame: &mut ratatui::Frame) {
         match self.state.current_screen() {
             Screen::Home => self.render_home_screen(frame),
             Screen::Game => self.render_game_screen(frame),
@@ -333,20 +253,15 @@ impl App {
         );
     }
 
-    fn render_game_screen(&mut self, frame: &mut ratatui::Frame) {
+    fn render_game_screen(&self, frame: &mut ratatui::Frame) {
         let area = frame.area();
-
-        if self.state.game_world.is_none() {
-            self.state
-                .init_game_world(area.width as usize, area.height as usize);
-        }
 
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![Constraint::Min(1), Constraint::Length(1)])
             .split(area);
 
-        let map_area = if self.state.show_minerals {
+        let map_area = if self.state.game_render.show_minerals {
             let side_layout = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints(vec![Constraint::Min(0), Constraint::Length(38)])
@@ -390,7 +305,11 @@ impl App {
 
         // Status bar
         let clock_str = world.clock.elapsed_formatted();
-        let status = format!(" T + {} ", clock_str);
+        let status = if world.clock.is_paused() {
+            format!(" →/l +1s   ⏸ PAUSED   T + {} ", clock_str)
+        } else {
+            format!(" ▶ RUNNING   T + {} ", clock_str)
+        };
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 status,
@@ -402,7 +321,7 @@ impl App {
         );
     }
 
-    fn render_minerals_dialog(&mut self, frame: &mut ratatui::Frame, area: Rect) {
+    fn render_minerals_dialog(&self, frame: &mut ratatui::Frame, area: Rect) {
         let column_gap = "  ";
 
         let mut lines = Vec::new();
@@ -456,9 +375,8 @@ impl App {
         let visible_height = inner.height;
         let max_scroll = (lines.len() as u16).saturating_sub(visible_height);
 
-        let scroll = if count > 0 && self.state.minerals_focus.is_some() {
-            let focus = self.state.minerals_focus.unwrap().min(count - 1) as u16;
-            self.state.minerals_focus = Some(focus as usize);
+        let scroll = if count > 0 && self.state.game_render.minerals_focus.is_some() {
+            let focus = self.state.game_render.minerals_focus.unwrap().min(count - 1) as u16;
 
             let highlight = Style::default()
                 .bg(Color::Magenta)
@@ -474,18 +392,17 @@ impl App {
             line.spans.push(Span::raw(" ".repeat(padding)));
             line.style = highlight;
 
-            if focus < self.state.minerals_scroll {
+            if focus < self.state.game_render.minerals_scroll {
                 focus
-            } else if focus >= self.state.minerals_scroll + visible_height {
+            } else if focus >= self.state.game_render.minerals_scroll + visible_height {
                 focus + 1 - visible_height
             } else {
-                self.state.minerals_scroll
+                self.state.game_render.minerals_scroll
             }
         } else {
-            self.state.minerals_scroll
+            self.state.game_render.minerals_scroll
         }
         .min(max_scroll);
-        self.state.minerals_scroll = scroll;
 
         frame.render_widget(Clear, area);
         frame.render_widget(
@@ -501,7 +418,7 @@ impl App {
 mod tests {
     use super::*;
     use insta::assert_snapshot;
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{Terminal, backend::TestBackend};
 
     fn buffer_to_string(terminal: &Terminal<TestBackend>) -> String {
         let buffer = terminal.backend().buffer();

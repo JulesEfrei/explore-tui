@@ -25,4 +25,6 @@ pub enum Action {
     SelectNextOption,
     DecreaseOption,
     IncreaseOption,
+    TogglePause,
+    AdvanceClock,
 }

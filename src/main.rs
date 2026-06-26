@@ -1,6 +1,7 @@
 use std::error::Error;
 
 mod app;
+mod event;
 mod map;
 mod state;
 

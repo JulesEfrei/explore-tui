@@ -1,18 +1,36 @@
+use std::time::Duration;
+
 use crate::map::MapOptions;
 use crate::state::game_world::GameWorld;
 use crate::state::screen::{Action, GameFocus, Screen};
 
 pub const OPTION_COUNT: usize = 4;
 
+#[derive(Debug, Clone, Copy)]
+pub struct GameRenderState {
+    pub show_minerals: bool,
+    pub minerals_scroll: u16,
+    pub minerals_focus: Option<usize>,
+}
+
+impl GameRenderState {
+    pub fn new() -> Self {
+        GameRenderState {
+            show_minerals: true,
+            minerals_scroll: 0,
+            minerals_focus: None,
+        }
+    }
+}
+
 pub struct State {
     pub current_screen: Screen,
     pub game_focus: GameFocus,
     pub game_world: Option<GameWorld>,
-    pub show_minerals: bool,
-    pub minerals_scroll: u16,
-    pub minerals_focus: Option<usize>,
+    pub game_render: GameRenderState,
     pub options: MapOptions,
     pub selected_option: usize,
+    pub terminal_size: (u16, u16),
 }
 
 impl State {
@@ -21,11 +39,10 @@ impl State {
             current_screen: Screen::Home,
             game_focus: GameFocus::Map,
             game_world: None,
-            show_minerals: true,
-            minerals_scroll: 0,
-            minerals_focus: None,
+            game_render: GameRenderState::new(),
             options: MapOptions::default(),
             selected_option: 0,
+            terminal_size: (0, 0),
         }
     }
 
@@ -34,16 +51,24 @@ impl State {
             Action::StartGame => {
                 self.current_screen = Screen::Game;
                 self.game_focus = GameFocus::Map;
-                self.game_world = None;
-                self.show_minerals = true;
-                self.minerals_scroll = 0;
-                self.minerals_focus = None;
+                self.game_render = GameRenderState::new();
+                self.init_game_world(self.terminal_size.0 as usize, self.terminal_size.1 as usize);
+            }
+            Action::TogglePause => {
+                if let Some(ref mut world) = self.game_world {
+                    world.clock.toggle_pause();
+                }
+            }
+            Action::AdvanceClock => {
+                if let Some(ref mut world) = self.game_world {
+                    world.clock.advance_by(Duration::from_secs(1));
+                }
             }
             Action::GoHome => {
                 self.current_screen = Screen::Home;
                 self.game_focus = GameFocus::Map;
                 self.game_world = None;
-                self.show_minerals = false;
+                self.game_render.show_minerals = false;
             }
             Action::GoOptions => {
                 self.current_screen = Screen::Options;
@@ -51,34 +76,36 @@ impl State {
                 self.selected_option = 0;
             }
             Action::ToggleMinerals => {
-                self.show_minerals = !self.show_minerals;
-                if !self.show_minerals {
-                    self.minerals_focus = None;
+                self.game_render.show_minerals = !self.game_render.show_minerals;
+                if !self.game_render.show_minerals {
+                    self.game_render.minerals_focus = None;
                 }
             }
             Action::FocusMinerals => {
                 self.game_focus = GameFocus::Minerals;
-                if self.minerals_focus.is_none() && self.minerals_count() > 0 {
-                    self.show_minerals = true;
-                    self.minerals_focus = Some(0);
+                if self.game_render.minerals_focus.is_none() && self.minerals_count() > 0 {
+                    self.game_render.show_minerals = true;
+                    self.game_render.minerals_focus = Some(0);
                 }
             }
             Action::FocusMap => {
                 self.game_focus = GameFocus::Map;
-                self.minerals_focus = None;
+                self.game_render.minerals_focus = None;
             }
             Action::ScrollMineralsUp => {
-                if let Some(focus) = self.minerals_focus {
-                    self.minerals_focus = Some(focus.saturating_sub(1));
+                if let Some(focus) = self.game_render.minerals_focus {
+                    self.game_render.minerals_focus = Some(focus.saturating_sub(1));
                 } else {
-                    self.minerals_scroll = self.minerals_scroll.saturating_sub(1);
+                    self.game_render.minerals_scroll =
+                        self.game_render.minerals_scroll.saturating_sub(1);
                 }
             }
             Action::ScrollMineralsDown => {
-                if let Some(focus) = self.minerals_focus {
-                    self.minerals_focus = Some(focus + 1);
+                if let Some(focus) = self.game_render.minerals_focus {
+                    self.game_render.minerals_focus = Some(focus + 1);
                 } else {
-                    self.minerals_scroll = self.minerals_scroll.saturating_add(1);
+                    self.game_render.minerals_scroll =
+                        self.game_render.minerals_scroll.saturating_add(1);
                 }
             }
             Action::SelectPreviousOption => {
@@ -148,6 +175,12 @@ impl State {
 mod tests {
     use super::*;
 
+    fn make_state() -> State {
+        let mut state = State::new();
+        state.terminal_size = (80, 24);
+        state
+    }
+
     #[test]
     fn test_new_state_initializes_with_home_screen() {
         let state = State::new();
@@ -162,14 +195,14 @@ mod tests {
 
     #[test]
     fn test_update_with_start_game_action() {
-        let mut state = State::new();
+        let mut state = make_state();
         state.update(Action::StartGame);
         assert_eq!(state.current_screen, Screen::Game);
     }
 
     #[test]
     fn test_update_with_go_home_action() {
-        let mut state = State::new();
+        let mut state = make_state();
         state.update(Action::StartGame);
         assert_eq!(state.current_screen, Screen::Game);
         state.update(Action::GoHome);
@@ -178,7 +211,7 @@ mod tests {
 
     #[test]
     fn test_multiple_updates() {
-        let mut state = State::new();
+        let mut state = make_state();
         state.update(Action::StartGame);
         assert_eq!(state.current_screen(), Screen::Game);
         state.update(Action::GoHome);

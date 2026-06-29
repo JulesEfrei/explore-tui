@@ -24,7 +24,7 @@ pub struct Mineral {
     pub max_value: u32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Point {
     pub x: usize,
     pub y: usize,
@@ -107,6 +107,7 @@ pub struct Map {
     width: usize,
     height: usize,
     options: MapOptions,
+    base: Option<Base>,
     pub elevation_map: Vec<f64>,
     terrain_map: Vec<Terrain>,
     mineral_map: Vec<Option<Mineral>>,
@@ -134,6 +135,34 @@ impl Map {
 
     pub fn size(&self) -> (usize, usize) {
         (self.width, self.height)
+    }
+
+    pub fn points(&self) -> Vec<Point> {
+        let mut points = Vec::with_capacity(self.width * self.height);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                points.push(point!(x, y));
+            }
+        }
+        points
+    }
+
+    pub fn base_center(&self) -> Option<Point> {
+        let base = self.base.as_ref()?;
+        Some(point!(
+            (base.coordinates.0.x + base.coordinates.1.x) / 2,
+            (base.coordinates.0.y + base.coordinates.2.y) / 2
+        ))
+    }
+
+    pub fn base_tiles(&self) -> Option<[Point; 4]> {
+        let base = self.base.as_ref()?;
+        Some([
+            base.coordinates.0,
+            base.coordinates.1,
+            base.coordinates.2,
+            base.coordinates.3,
+        ])
     }
 
     pub fn set_options(&mut self, options: MapOptions) {
@@ -185,6 +214,7 @@ impl Map {
                 self.set_terrain_at(b.1, Terrain::Base);
                 self.set_terrain_at(b.2, Terrain::Base);
                 self.set_terrain_at(b.3, Terrain::Base);
+                self.base = Some(base);
                 break;
             }
         }
@@ -246,8 +276,23 @@ impl Map {
             width,
             height,
             options: MapOptions::default(),
+            base: None,
             elevation_map: Vec::with_capacity(width * height),
             terrain_map: Vec::with_capacity(width * height),
+            mineral_map: vec![None; width * height],
+        }
+    }
+
+    #[cfg(test)]
+    pub fn from_terrain_for_tests(width: usize, height: usize, terrain_map: Vec<Terrain>) -> Self {
+        assert_eq!(terrain_map.len(), width * height);
+        Self {
+            width,
+            height,
+            options: MapOptions::default(),
+            base: None,
+            elevation_map: vec![0.5; width * height],
+            terrain_map,
             mineral_map: vec![None; width * height],
         }
     }
@@ -288,28 +333,51 @@ impl Map {
         self.mineral_map[idx]
     }
 
-    fn mine_at(&mut self, coordinates: Point) -> Option<MineralKind> {
-        let idx = self.get_index_from_coordinates(coordinates)?;
-        let mineral = self.mineral_map[idx].as_mut()?;
-
-        mineral.value = mineral.value.saturating_sub(1);
-        let kind = mineral.kind;
-
-        if mineral.value == 0 {
-            self.mineral_map[idx] = None;
-        }
-
-        Some(kind)
-    }
-
     pub fn terrain_at(&self, coordinates: Point) -> Option<Terrain> {
-        let index = self.get_index_from_coordinates(coordinates).unwrap();
+        let index = self.get_index_from_coordinates(coordinates)?;
 
         if index >= self.terrain_map.len() {
             return None;
         }
 
         Some(self.terrain_map[index])
+    }
+
+    pub fn is_walkable(&self, coordinates: Point) -> bool {
+        !matches!(
+            self.terrain_at(coordinates),
+            None | Some(Terrain::DeepWater) | Some(Terrain::Mountains)
+        )
+    }
+
+    pub fn terrain_cost(&self, coordinates: Point) -> Option<u32> {
+        match self.terrain_at(coordinates)? {
+            Terrain::DeepWater | Terrain::Mountains => None,
+            Terrain::Plains | Terrain::Base => Some(1),
+            Terrain::Hills => Some(2),
+            Terrain::ShallowWater => Some(3),
+        }
+    }
+
+    pub fn neighbors(&self, coordinates: Point) -> Vec<Point> {
+        let mut neighbors = Vec::with_capacity(4);
+        let candidates = [
+            (coordinates.x.checked_sub(1), Some(coordinates.y)),
+            (Some(coordinates.x + 1), Some(coordinates.y)),
+            (Some(coordinates.x), coordinates.y.checked_sub(1)),
+            (Some(coordinates.x), Some(coordinates.y + 1)),
+        ];
+
+        for (x, y) in candidates {
+            if let (Some(x), Some(y)) = (x, y) {
+                let point = point!(x, y);
+                if self.is_walkable(point) {
+                    neighbors.push(point);
+                }
+            }
+        }
+
+        neighbors
     }
 
     fn set_terrain_at(&mut self, coordinates: Point, terrain: Terrain) {

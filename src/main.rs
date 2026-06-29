@@ -1,6 +1,7 @@
 use std::error::Error;
 
 mod app;
+mod bots;
 mod event;
 mod map;
 mod state;

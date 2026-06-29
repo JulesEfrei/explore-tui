@@ -26,5 +26,4 @@ pub enum Action {
     DecreaseOption,
     IncreaseOption,
     TogglePause,
-    AdvanceClock,
 }

@@ -1,10 +1,9 @@
-use std::time::Duration;
-
+use crate::bots::BotConfig;
 use crate::map::MapOptions;
 use crate::state::game_world::GameWorld;
 use crate::state::screen::{Action, GameFocus, Screen};
 
-pub const OPTION_COUNT: usize = 4;
+pub const OPTION_COUNT: usize = 9;
 
 #[derive(Debug, Clone, Copy)]
 pub struct GameRenderState {
@@ -29,6 +28,7 @@ pub struct State {
     pub game_world: Option<GameWorld>,
     pub game_render: GameRenderState,
     pub options: MapOptions,
+    pub bot_config: BotConfig,
     pub selected_option: usize,
     pub terminal_size: (u16, u16),
 }
@@ -41,6 +41,7 @@ impl State {
             game_world: None,
             game_render: GameRenderState::new(),
             options: MapOptions::default(),
+            bot_config: BotConfig::default(),
             selected_option: 0,
             terminal_size: (0, 0),
         }
@@ -57,11 +58,6 @@ impl State {
             Action::TogglePause => {
                 if let Some(ref mut world) = self.game_world {
                     world.clock.toggle_pause();
-                }
-            }
-            Action::AdvanceClock => {
-                if let Some(ref mut world) = self.game_world {
-                    world.clock.advance_by(Duration::from_secs(1));
                 }
             }
             Action::GoHome => {
@@ -142,11 +138,46 @@ impl State {
                     self.options.octaves.saturating_sub(1).max(1)
                 };
             }
-            _ => {
+            3 => {
                 self.options.frequency = if increase {
                     (self.options.frequency + 0.005).min(0.05)
                 } else {
                     (self.options.frequency - 0.005).max(0.005)
+                };
+            }
+            4 => {
+                self.bot_config.scout_count = if increase {
+                    (self.bot_config.scout_count + 1).min(8)
+                } else {
+                    self.bot_config.scout_count.saturating_sub(1).max(1)
+                };
+            }
+            5 => {
+                self.bot_config.miner_count = if increase {
+                    (self.bot_config.miner_count + 1).min(8)
+                } else {
+                    self.bot_config.miner_count.saturating_sub(1).max(1)
+                };
+            }
+            6 => {
+                self.bot_config.scout_algorithm = if increase {
+                    self.bot_config.scout_algorithm.next()
+                } else {
+                    self.bot_config.scout_algorithm.previous()
+                };
+            }
+            7 => {
+                self.bot_config.miner_algorithm = if increase {
+                    self.bot_config.miner_algorithm.next()
+                } else {
+                    self.bot_config.miner_algorithm.previous()
+                };
+            }
+            _ => {
+                self.bot_config.assignment_strategy = if increase {
+                    self.bot_config.assignment_strategy.next()
+                } else {
+                    self.bot_config.assignment_strategy.previous()
                 };
             }
         }
@@ -159,7 +190,7 @@ impl State {
     }
 
     pub fn init_game_world(&mut self, width: usize, height: usize) {
-        self.game_world = Some(GameWorld::new(width, height, self.options));
+        self.game_world = Some(GameWorld::new(width, height, self.options, self.bot_config));
     }
 
     pub fn current_screen(&self) -> Screen {
@@ -218,5 +249,23 @@ mod tests {
         assert_eq!(state.current_screen(), Screen::Home);
         state.update(Action::StartGame);
         assert_eq!(state.current_screen(), Screen::Game);
+    }
+
+    #[test]
+    fn test_adjusts_bot_counts_from_options() {
+        let mut state = make_state();
+        state.update(Action::GoOptions);
+
+        state.selected_option = 4;
+        state.update(Action::IncreaseOption);
+        assert_eq!(state.bot_config.scout_count, 4);
+        state.update(Action::DecreaseOption);
+        assert_eq!(state.bot_config.scout_count, 3);
+
+        state.selected_option = 5;
+        state.update(Action::IncreaseOption);
+        assert_eq!(state.bot_config.miner_count, 3);
+        state.update(Action::DecreaseOption);
+        assert_eq!(state.bot_config.miner_count, 2);
     }
 }

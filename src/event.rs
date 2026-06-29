@@ -59,14 +59,14 @@ impl App {
             KeyCode::Char('r') => self.state.update(Action::StartGame),
             KeyCode::Char('m') => self.state.update(Action::ToggleMinerals),
             KeyCode::Char(' ') => self.state.update(Action::TogglePause),
-            KeyCode::Right | KeyCode::Char('l') => {
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Char('L') => {
                 if self
                     .state
                     .game_world
                     .as_ref()
-                    .map_or(false, |w| w.clock.is_paused())
+                    .is_some_and(|w| w.clock.is_paused())
                 {
-                    self.state.update(Action::AdvanceClock);
+                    self.advance_paused_game(Duration::from_secs(1));
                 }
             }
             _ => {
@@ -77,6 +77,19 @@ impl App {
             }
         }
         Ok(false)
+    }
+
+    fn advance_paused_game(&mut self, duration: Duration) {
+        let Some(world) = self.state.game_world.as_mut() else {
+            return;
+        };
+
+        let ticks = world.clock.advance_by(duration);
+        for _ in 0..ticks {
+            self.game_tick();
+        }
+        std::thread::sleep(Duration::from_millis(20));
+        self.drain_bot_events();
     }
 
     fn handle_game_map_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {

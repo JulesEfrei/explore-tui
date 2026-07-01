@@ -382,6 +382,11 @@ impl App {
             .values()
             .filter(|snapshot| snapshot.kind == BotKind::Miner)
             .count();
+        let algorithms = format!(
+            " Scout: {}   Miner: {} ",
+            self.state.bot_config.scout_algorithm.label(),
+            self.state.bot_config.miner_algorithm.label()
+        );
         let status = if world.clock.is_paused() {
             format!(
                 " →/l +1s   ⏸ PAUSED   T + {}   Scouts: {}   Miners: {}   Resources: {} ",
@@ -393,6 +398,23 @@ impl App {
                 clock_str, scouts, miners, world.resources_at_base
             )
         };
+        let status_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![
+                Constraint::Length((algorithms.chars().count() as u16).min(status_area.width)),
+                Constraint::Min(1),
+            ])
+            .split(status_area);
+
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                algorithms,
+                Style::default().fg(Color::Gray),
+            )))
+            .style(Style::default().bg(Color::DarkGray))
+            .alignment(Alignment::Left),
+            status_layout[0],
+        );
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 status,
@@ -400,7 +422,7 @@ impl App {
             )))
             .style(Style::default().bg(Color::DarkGray))
             .alignment(Alignment::Right),
-            status_area,
+            status_layout[1],
         );
     }
 

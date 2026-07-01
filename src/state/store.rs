@@ -7,7 +7,6 @@ pub const OPTION_COUNT: usize = 9;
 
 #[derive(Debug, Clone, Copy)]
 pub struct GameRenderState {
-    pub show_minerals: bool,
     pub minerals_scroll: u16,
     pub minerals_focus: Option<usize>,
 }
@@ -15,7 +14,6 @@ pub struct GameRenderState {
 impl GameRenderState {
     pub fn new() -> Self {
         GameRenderState {
-            show_minerals: true,
             minerals_scroll: 0,
             minerals_focus: None,
         }
@@ -64,23 +62,15 @@ impl State {
                 self.current_screen = Screen::Home;
                 self.game_focus = GameFocus::Map;
                 self.game_world = None;
-                self.game_render.show_minerals = false;
             }
             Action::GoOptions => {
                 self.current_screen = Screen::Options;
                 self.game_focus = GameFocus::Map;
                 self.selected_option = 0;
             }
-            Action::ToggleMinerals => {
-                self.game_render.show_minerals = !self.game_render.show_minerals;
-                if !self.game_render.show_minerals {
-                    self.game_render.minerals_focus = None;
-                }
-            }
             Action::FocusMinerals => {
                 self.game_focus = GameFocus::Minerals;
                 if self.game_render.minerals_focus.is_none() && self.minerals_count() > 0 {
-                    self.game_render.show_minerals = true;
                     self.game_render.minerals_focus = Some(0);
                 }
             }

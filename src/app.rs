@@ -15,7 +15,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Padding, Paragraph},
+    widgets::{Block, Borders, Padding, Paragraph},
 };
 
 pub struct App {
@@ -319,17 +319,13 @@ impl App {
             .constraints(vec![Constraint::Min(1), Constraint::Length(1)])
             .split(area);
 
-        let map_area = if self.state.game_render.show_minerals {
-            let side_layout = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints(vec![Constraint::Min(0), Constraint::Length(38)])
-                .split(layout[0]);
+        let side_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![Constraint::Min(1), Constraint::Length(38)])
+            .split(layout[0]);
+        let map_area = side_layout[0];
+        self.render_minerals_dialog(frame, side_layout[1]);
 
-            self.render_minerals_dialog(frame, side_layout[1]);
-            side_layout[0]
-        } else {
-            layout[0]
-        };
         let status_area = layout[1];
 
         let world = self.state.game_world.as_ref().unwrap();
@@ -463,7 +459,7 @@ impl App {
         }
 
         let dialog_block = Block::new()
-            .borders(Borders::LEFT)
+            .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Magenta))
             .title(Line::from(Span::styled(
                 format!(" Minerals ({count}) "),
@@ -508,7 +504,6 @@ impl App {
         }
         .min(max_scroll);
 
-        frame.render_widget(Clear, area);
         frame.render_widget(
             Paragraph::new(lines)
                 .block(dialog_block)

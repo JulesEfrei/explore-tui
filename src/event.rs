@@ -57,7 +57,6 @@ impl App {
         match code {
             KeyCode::Char('h') => self.state.update(Action::GoHome),
             KeyCode::Char('r') => self.state.update(Action::StartGame),
-            KeyCode::Char('m') => self.state.update(Action::ToggleMinerals),
             KeyCode::Char(' ') => self.state.update(Action::TogglePause),
             KeyCode::Right | KeyCode::Char('l') | KeyCode::Char('L') => {
                 if self

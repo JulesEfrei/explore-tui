@@ -59,6 +59,36 @@ pub struct PerlinGenerator {
     perlin: Fbm<Perlin>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SeededRng {
+    state: u64,
+}
+
+impl SeededRng {
+    fn new(seed: u32) -> Self {
+        Self { state: seed as u64 }
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        self.state = self
+            .state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        (self.state >> 32) as u32
+    }
+
+    fn range_usize(&mut self, range: std::ops::Range<usize>) -> usize {
+        let len = range.end.saturating_sub(range.start);
+        range.start + (self.next_u32() as usize % len)
+    }
+
+    fn range_u32_inclusive(&mut self, range: std::ops::RangeInclusive<u32>) -> u32 {
+        let start = *range.start();
+        let len = range.end() - start + 1;
+        start + (self.next_u32() % len)
+    }
+}
+
 impl PerlinGenerator {
     pub fn new(seed: u32, octaves: usize, frequency: f64) -> Self {
         let noise = Fbm::<Perlin>::new(seed)
@@ -89,6 +119,7 @@ pub struct MapOptions {
     pub diamond_count: u32,
     pub octaves: usize,
     pub frequency: f64,
+    pub seed: Option<u32>,
 }
 
 impl Default for MapOptions {
@@ -98,6 +129,7 @@ impl Default for MapOptions {
             diamond_count: 6,
             octaves: 2,
             frequency: 0.02,
+            seed: None,
         }
     }
 }
@@ -169,6 +201,12 @@ impl Map {
         self.options = options;
     }
 
+    pub fn seed(&self) -> u32 {
+        self.options
+            .seed
+            .expect("map seed should be resolved during initialization")
+    }
+
     pub fn minerals(&self) -> Vec<(Point, Mineral)> {
         let mut minerals = Vec::new();
 
@@ -182,10 +220,10 @@ impl Map {
         minerals
     }
 
-    fn try_place_mineral(&mut self, kind: MineralKind, value: u32) {
+    fn try_place_mineral(&mut self, kind: MineralKind, value: u32, rng: &mut SeededRng) {
         for _ in 0..10 {
-            let x = rand::random_range(0..self.width);
-            let y = rand::random_range(0..self.height);
+            let x = rng.range_usize(0..self.width);
+            let y = rng.range_usize(0..self.height);
             let idx = y * self.width + x;
 
             let terrain = self.terrain_map[idx];
@@ -205,10 +243,17 @@ impl Map {
     }
 
     pub fn initialize(&mut self) {
+        let seed = self
+            .options
+            .seed
+            .unwrap_or_else(PerlinGenerator::random_seed);
+        let mut attempt = 0;
         loop {
-            self.create_elevation_map();
+            let generation_seed = seed.wrapping_add(attempt);
+            self.create_elevation_map(generation_seed);
             self.create_terrain_from_elevation();
             if let Some(base) = self.find_base_location() {
+                self.options.seed = Some(generation_seed);
                 let b = base.coordinates;
                 self.set_terrain_at(b.0, Terrain::Base);
                 self.set_terrain_at(b.1, Terrain::Base);
@@ -217,6 +262,7 @@ impl Map {
                 self.base = Some(base);
                 break;
             }
+            attempt = attempt.wrapping_add(1);
         }
         self.create_minerals();
     }
@@ -297,12 +343,8 @@ impl Map {
         }
     }
 
-    fn create_elevation_map(&mut self) {
-        let generator = PerlinGenerator::new(
-            PerlinGenerator::random_seed(),
-            self.options.octaves,
-            self.options.frequency,
-        );
+    fn create_elevation_map(&mut self, seed: u32) {
+        let generator = PerlinGenerator::new(seed, self.options.octaves, self.options.frequency);
         self.elevation_map = Self::generate_elevation_map(self.width, self.height, &generator);
     }
 
@@ -318,13 +360,16 @@ impl Map {
 
     fn create_minerals(&mut self) {
         self.mineral_map = vec![None; self.width * self.height];
+        let mut rng = SeededRng::new(self.seed().wrapping_add(0x9E37_79B9));
 
         for _ in 0..self.options.energy_count {
-            self.try_place_mineral(MineralKind::Energy, rand::random_range(3..=8));
+            let value = rng.range_u32_inclusive(3..=8);
+            self.try_place_mineral(MineralKind::Energy, value, &mut rng);
         }
 
         for _ in 0..self.options.diamond_count {
-            self.try_place_mineral(MineralKind::Diamond, rand::random_range(2..=5));
+            let value = rng.range_u32_inclusive(2..=5);
+            self.try_place_mineral(MineralKind::Diamond, value, &mut rng);
         }
     }
 
@@ -457,5 +502,30 @@ impl Map {
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn initialized_map(seed: u32) -> Map {
+        let mut map = Map::new(80, 24);
+        map.set_options(MapOptions {
+            seed: Some(seed),
+            ..MapOptions::default()
+        });
+        map.initialize();
+        map
+    }
+
+    #[test]
+    fn same_seed_replays_same_map() {
+        let first = initialized_map(12345);
+        let second = initialized_map(12345);
+
+        assert_eq!(first.terrain_map, second.terrain_map);
+        assert_eq!(first.minerals(), second.minerals());
+        assert_eq!(first.base_center(), second.base_center());
     }
 }

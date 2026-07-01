@@ -236,6 +236,12 @@ impl App {
             ("Niveau de détail du relief", options.octaves.to_string()),
             ("Taille des reliefs", format!("{:.3}", options.frequency)),
             (
+                "Seed de génération",
+                options
+                    .seed
+                    .map_or_else(String::new, |seed| seed.to_string()),
+            ),
+            (
                 "Nombre de scouts",
                 self.state.bot_config.scout_count.to_string(),
             ),
@@ -303,7 +309,7 @@ impl App {
 
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                "↑↓/jk naviguer  ←/h −  →/l +  enter jouer  esc/⌫ accueil",
+                "↑↓/jk naviguer  ←/h −  →/l +  seed: chiffres/⌫  enter jouer  esc accueil",
                 Style::default().fg(Color::Yellow),
             )))
             .alignment(Alignment::Center),
@@ -383,7 +389,8 @@ impl App {
             .filter(|snapshot| snapshot.kind == BotKind::Miner)
             .count();
         let algorithms = format!(
-            " Scout: {}   Miner: {} ",
+            " Seed: {}   Scout: {}   Miner: {} ",
+            map.seed(),
             self.state.bot_config.scout_algorithm.label(),
             self.state.bot_config.miner_algorithm.label()
         );

@@ -42,11 +42,20 @@ impl App {
 
     fn handle_options_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
         match code {
-            KeyCode::Esc | KeyCode::Backspace => self.state.update(Action::GoHome),
+            KeyCode::Esc => self.state.update(Action::GoHome),
+            KeyCode::Backspace if self.state.is_seed_option_selected() => {
+                self.state.delete_seed_digit();
+            }
+            KeyCode::Backspace => self.state.update(Action::GoHome),
             KeyCode::Up | KeyCode::Char('k') => self.state.update(Action::SelectPreviousOption),
             KeyCode::Down | KeyCode::Char('j') => self.state.update(Action::SelectNextOption),
             KeyCode::Left | KeyCode::Char('h') => self.state.update(Action::DecreaseOption),
             KeyCode::Right | KeyCode::Char('l') => self.state.update(Action::IncreaseOption),
+            KeyCode::Char(digit)
+                if self.state.is_seed_option_selected() && digit.is_ascii_digit() =>
+            {
+                self.state.append_seed_digit(digit);
+            }
             KeyCode::Enter => self.state.update(Action::StartGame),
             _ => {}
         }

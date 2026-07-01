@@ -3,7 +3,8 @@ use crate::map::MapOptions;
 use crate::state::game_world::GameWorld;
 use crate::state::screen::{Action, GameFocus, Screen};
 
-pub const OPTION_COUNT: usize = 9;
+pub const OPTION_COUNT: usize = 10;
+pub const SEED_OPTION_INDEX: usize = 4;
 
 #[derive(Debug, Clone, Copy)]
 pub struct GameRenderState {
@@ -136,27 +137,36 @@ impl State {
                 };
             }
             4 => {
+                if let Some(seed) = self.options.seed {
+                    self.options.seed = Some(if increase {
+                        seed.saturating_add(1)
+                    } else {
+                        seed.saturating_sub(1)
+                    });
+                }
+            }
+            5 => {
                 self.bot_config.scout_count = if increase {
                     (self.bot_config.scout_count + 1).min(8)
                 } else {
                     self.bot_config.scout_count.saturating_sub(1).max(1)
                 };
             }
-            5 => {
+            6 => {
                 self.bot_config.miner_count = if increase {
                     (self.bot_config.miner_count + 1).min(8)
                 } else {
                     self.bot_config.miner_count.saturating_sub(1).max(1)
                 };
             }
-            6 => {
+            7 => {
                 self.bot_config.scout_algorithm = if increase {
                     self.bot_config.scout_algorithm.next()
                 } else {
                     self.bot_config.scout_algorithm.previous()
                 };
             }
-            7 => {
+            8 => {
                 self.bot_config.miner_algorithm = if increase {
                     self.bot_config.miner_algorithm.next()
                 } else {
@@ -171,6 +181,31 @@ impl State {
                 };
             }
         }
+    }
+
+    pub fn is_seed_option_selected(&self) -> bool {
+        self.selected_option == SEED_OPTION_INDEX
+    }
+
+    pub fn append_seed_digit(&mut self, digit: char) {
+        let Some(digit) = digit.to_digit(10) else {
+            return;
+        };
+
+        let current = self.options.seed.unwrap_or(0);
+        if let Some(seed) = current
+            .checked_mul(10)
+            .and_then(|seed| seed.checked_add(digit))
+        {
+            self.options.seed = Some(seed);
+        }
+    }
+
+    pub fn delete_seed_digit(&mut self) {
+        self.options.seed = self
+            .options
+            .seed
+            .and_then(|seed| (seed >= 10).then_some(seed / 10));
     }
 
     fn minerals_count(&self) -> usize {
@@ -246,16 +281,49 @@ mod tests {
         let mut state = make_state();
         state.update(Action::GoOptions);
 
-        state.selected_option = 4;
+        state.selected_option = 5;
         state.update(Action::IncreaseOption);
         assert_eq!(state.bot_config.scout_count, 4);
         state.update(Action::DecreaseOption);
         assert_eq!(state.bot_config.scout_count, 3);
 
-        state.selected_option = 5;
+        state.selected_option = 6;
         state.update(Action::IncreaseOption);
         assert_eq!(state.bot_config.miner_count, 3);
         state.update(Action::DecreaseOption);
         assert_eq!(state.bot_config.miner_count, 2);
+    }
+
+    #[test]
+    fn test_seed_input_only_accepts_numeric_digits() {
+        let mut state = make_state();
+        assert_eq!(state.options.seed, None);
+
+        state.append_seed_digit('3');
+        assert_eq!(state.options.seed, Some(3));
+
+        state.append_seed_digit('4');
+        assert_eq!(state.options.seed, Some(34));
+
+        state.append_seed_digit('x');
+        assert_eq!(state.options.seed, Some(34));
+
+        state.delete_seed_digit();
+        assert_eq!(state.options.seed, Some(3));
+
+        state.delete_seed_digit();
+        assert_eq!(state.options.seed, None);
+    }
+
+    #[test]
+    fn test_empty_seed_option_stays_empty_after_generated_game() {
+        let mut state = make_state();
+        assert_eq!(state.options.seed, None);
+
+        state.update(Action::StartGame);
+
+        assert_eq!(state.options.seed, None);
+        let world = state.game_world.as_ref().expect("game world");
+        let _generated_seed = world.map.seed();
     }
 }

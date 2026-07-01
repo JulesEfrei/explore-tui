@@ -59,7 +59,7 @@ impl BotManager {
             let spawn_tiles = map.base_tiles().unwrap_or([base; 4]);
 
             for id in 0..config.scout_count {
-                let spawn = spawn_tiles[rand::random_range(0..spawn_tiles.len())];
+                let spawn = spawn_tiles[(map.seed() as usize + id as usize) % spawn_tiles.len()];
                 let (tick_tx, tick_rx) = mpsc::channel();
                 tick_txs.push(tick_tx);
                 scouts.push(spawn_scout(ScoutSpawn {

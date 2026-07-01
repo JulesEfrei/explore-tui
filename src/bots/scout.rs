@@ -12,7 +12,7 @@ use crate::{
     bots::{
         BotEvent, BotKind, BotSnapshot, BotStatus, ExplorationBias, MinerAlgorithm, ScoutAlgorithm,
         ScoutMemory, miner_path,
-        movement::{MovementProgress, wait_for_tick},
+        movement::{MovementProgress, MovementStep, wait_for_tick},
         scout_path,
     },
     map::{Map, MineralKind, Point},
@@ -62,18 +62,21 @@ pub(super) fn spawn_scout(config: ScoutSpawn) -> JoinHandle<()> {
                 path = next_path.unwrap_or_default().into();
             }
 
-            if let Some(next) = movement.advance(&config.map, &mut path) {
-                pos = next;
-                memory.mark_visited(pos);
-                report_scout_step(
-                    &config.map,
-                    &config.events_tx,
-                    config.id,
-                    pos,
-                    config.base,
-                    &mut path,
-                    &mut pending_discovery,
-                );
+            match movement.advance(&config.map, &mut path) {
+                MovementStep::Arrived(next) => {
+                    pos = next;
+                    memory.mark_visited(pos);
+                    report_scout_step(
+                        &config.map,
+                        &config.events_tx,
+                        config.id,
+                        pos,
+                        config.base,
+                        &mut path,
+                        &mut pending_discovery,
+                    );
+                }
+                MovementStep::Waiting | MovementStep::Idle => {}
             }
         }
     })

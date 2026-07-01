@@ -17,21 +17,32 @@ pub(super) struct MovementProgress {
     ticks_remaining: u32,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum MovementStep {
+    Arrived(Point),
+    Waiting,
+    Idle,
+}
+
 impl MovementProgress {
-    pub(super) fn advance(&mut self, map: &Map, path: &mut VecDeque<Point>) -> Option<Point> {
+    pub(super) fn advance(&mut self, map: &Map, path: &mut VecDeque<Point>) -> MovementStep {
         if self.target.is_none() {
-            let next = path.pop_front()?;
-            let ticks = map.terrain_cost(next)?;
+            let Some(next) = path.pop_front() else {
+                return MovementStep::Idle;
+            };
+            let Some(ticks) = map.terrain_cost(next) else {
+                return MovementStep::Idle;
+            };
             self.target = Some(next);
             self.ticks_remaining = ticks;
         }
 
         self.ticks_remaining = self.ticks_remaining.saturating_sub(1);
         if self.ticks_remaining == 0 {
-            return self.target.take();
+            return MovementStep::Arrived(self.target.take().unwrap());
         }
 
-        None
+        MovementStep::Waiting
     }
 }
 
@@ -67,13 +78,33 @@ mod tests {
         let shallow_water_cost = map.terrain_cost(point!(2, 0)).expect("shallow water cost");
 
         for _ in 1..hill_cost {
-            assert_eq!(movement.advance(&map, &mut path), None);
+            assert_eq!(movement.advance(&map, &mut path), MovementStep::Waiting);
         }
-        assert_eq!(movement.advance(&map, &mut path), Some(point!(1, 0)));
+        assert_eq!(
+            movement.advance(&map, &mut path),
+            MovementStep::Arrived(point!(1, 0))
+        );
 
         for _ in 1..shallow_water_cost {
-            assert_eq!(movement.advance(&map, &mut path), None);
+            assert_eq!(movement.advance(&map, &mut path), MovementStep::Waiting);
         }
-        assert_eq!(movement.advance(&map, &mut path), Some(point!(2, 0)));
+        assert_eq!(
+            movement.advance(&map, &mut path),
+            MovementStep::Arrived(point!(2, 0))
+        );
+    }
+
+    #[test]
+    fn movement_distinguishes_waiting_from_idle() {
+        let map = Map::from_terrain_for_tests(2, 1, vec![Terrain::Plains, Terrain::Hills]);
+        let mut movement = MovementProgress::default();
+        let mut path = VecDeque::from(vec![point!(1, 0)]);
+
+        assert_eq!(movement.advance(&map, &mut path), MovementStep::Waiting);
+        assert_eq!(
+            movement.advance(&map, &mut path),
+            MovementStep::Arrived(point!(1, 0))
+        );
+        assert_eq!(movement.advance(&map, &mut path), MovementStep::Idle);
     }
 }

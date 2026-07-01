@@ -355,7 +355,7 @@ impl Map {
             Terrain::DeepWater | Terrain::Mountains => None,
             Terrain::Plains | Terrain::Base => Some(1),
             Terrain::Hills => Some(2),
-            Terrain::ShallowWater => Some(3),
+            Terrain::ShallowWater => Some(2),
         }
     }
 

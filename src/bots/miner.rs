@@ -11,7 +11,7 @@ use std::{
 use crate::{
     bots::{
         BotEvent, BotKind, BotSnapshot, BotStatus, MinerAlgorithm, MiningOrder, miner_path,
-        movement::{MovementProgress, wait_for_tick},
+        movement::{MovementProgress, MovementStep, wait_for_tick},
     },
     map::{Map, Point},
 };
@@ -79,15 +79,19 @@ impl MinerWorker {
                 continue;
             }
 
-            if let Some(next) = self.movement.advance(&self.map, &mut self.path) {
-                self.pos = next;
-                let status = if self.returning_to_base {
-                    BotStatus::ReturningToBase
-                } else {
-                    BotStatus::Moving
-                };
-                send_miner_move(&self.events_tx, self.id, self.pos, status);
-                continue;
+            match self.movement.advance(&self.map, &mut self.path) {
+                MovementStep::Arrived(next) => {
+                    self.pos = next;
+                    let status = if self.returning_to_base {
+                        BotStatus::ReturningToBase
+                    } else {
+                        BotStatus::Moving
+                    };
+                    send_miner_move(&self.events_tx, self.id, self.pos, status);
+                    continue;
+                }
+                MovementStep::Waiting => continue,
+                MovementStep::Idle => {}
             }
 
             self.complete_phase();

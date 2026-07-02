@@ -11,5 +11,3 @@ pathfinding = "4.15.0"
 rand = "0.10.1"
 ratatui = "0.30.0"
 
-[dev-dependencies]
-insta = "1.47.2"

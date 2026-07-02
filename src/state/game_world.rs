@@ -185,3 +185,133 @@ impl GameWorld {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        bots::BotConfig,
+        map::MapOptions,
+        point,
+    };
+
+    fn test_world() -> GameWorld {
+        GameWorld::new(
+            10,
+            10,
+            MapOptions {
+                seed: Some(42),
+                energy_count: 2,
+                diamond_count: 1,
+                ..MapOptions::default()
+            },
+            BotConfig {
+                scout_count: 0,
+                miner_count: 0,
+                ..BotConfig::default()
+            },
+        )
+    }
+
+    fn first_mineral_pos(world: &GameWorld) -> Point {
+        world.map.minerals()[0].0
+    }
+
+    #[test]
+    fn records_known_mineral() {
+        let mut world = test_world();
+        let pos = first_mineral_pos(&world);
+        let kind = world.map.mineral_at(pos).unwrap().kind;
+
+        world.record_known_mineral(pos, kind);
+
+        assert_eq!(world.known_minerals.len(), 1);
+        assert_eq!(world.known_minerals[0].pos, pos);
+        assert_eq!(world.known_minerals[0].kind, kind);
+        assert_eq!(world.known_minerals[0].assigned_miners, 0);
+    }
+
+    #[test]
+    fn does_not_duplicate_known_mineral() {
+        let mut world = test_world();
+        let pos = first_mineral_pos(&world);
+        let kind = world.map.mineral_at(pos).unwrap().kind;
+
+        world.record_known_mineral(pos, kind);
+        world.record_known_mineral(pos, kind);
+
+        assert_eq!(world.known_minerals.len(), 1);
+    }
+
+    #[test]
+    fn record_miner_arrival_decrements_remaining() {
+        let mut world = test_world();
+        let pos = first_mineral_pos(&world);
+        let kind = world.map.mineral_at(pos).unwrap().kind;
+        world.record_known_mineral(pos, kind);
+
+        let initial = world.known_minerals[0].remaining;
+        world.record_miner_arrival(0, pos);
+
+        assert_eq!(world.known_minerals[0].remaining, initial - 1);
+    }
+
+    #[test]
+    fn record_miner_arrival_does_not_go_below_zero() {
+        let mut world = test_world();
+        let pos = first_mineral_pos(&world);
+        let kind = world.map.mineral_at(pos).unwrap().kind;
+        world.record_known_mineral(pos, kind);
+
+        for _ in 0..10 {
+            world.record_miner_arrival(0, pos);
+            world.record_miner_arrival(1, pos);
+        }
+
+        assert_eq!(world.known_minerals[0].remaining, 0);
+    }
+
+    #[test]
+    fn record_resource_delivery_adds_to_base() {
+        let mut world = test_world();
+        world.record_resource_delivery(0, point!(0, 0), 5);
+
+        assert_eq!(world.resources_at_base, 5);
+    }
+
+    #[test]
+    fn record_resource_delivery_accumulates() {
+        let mut world = test_world();
+        world.record_resource_delivery(0, point!(0, 0), 3);
+        world.record_resource_delivery(1, point!(0, 0), 7);
+
+        assert_eq!(world.resources_at_base, 10);
+    }
+
+    #[test]
+    fn resource_delivery_reinserts_miner_into_idle() {
+        let mut world = test_world();
+        world.record_resource_delivery(99, point!(0, 0), 1);
+        assert!(world.idle_miners.contains(&99));
+    }
+
+    #[test]
+    fn record_known_mineral_sets_remaining_from_map() {
+        let mut world = test_world();
+        let pos = first_mineral_pos(&world);
+        let kind = world.map.mineral_at(pos).unwrap().kind;
+        let map_value = world.map.mineral_at(pos).unwrap().value;
+
+        world.record_known_mineral(pos, kind);
+
+        assert_eq!(world.known_minerals[0].remaining, map_value);
+        assert_eq!(world.known_minerals[0].max_value, map_value);
+    }
+
+    #[test]
+    fn ignores_unknown_position() {
+        let mut world = test_world();
+        world.record_known_mineral(point!(99, 99), MineralKind::Energy);
+        assert!(world.known_minerals.is_empty());
+    }
+}

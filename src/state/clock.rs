@@ -73,3 +73,75 @@ impl GameClock {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_clock_is_not_paused() {
+        let clock = GameClock::new();
+        assert!(!clock.is_paused());
+        assert_eq!(clock.elapsed(), Duration::ZERO);
+    }
+
+    #[test]
+    fn toggle_pause_works() {
+        let mut clock = GameClock::new();
+        clock.toggle_pause();
+        assert!(clock.is_paused());
+        clock.toggle_pause();
+        assert!(!clock.is_paused());
+    }
+
+    #[test]
+    fn advance_returns_zero_when_paused() {
+        let mut clock = GameClock::new();
+        clock.toggle_pause();
+        assert_eq!(clock.advance(), 0);
+    }
+
+    #[test]
+    fn advance_by_produces_expected_ticks() {
+        let mut clock = GameClock::new();
+        let one_sec = Duration::from_secs(1);
+        let ticks = clock.advance_by(one_sec);
+        let nanos_per_tick = 33_333_333;
+        assert_eq!(ticks, (1_000_000_000 / nanos_per_tick) as u32);
+    }
+
+    #[test]
+    fn elapsed_matches_advanced_time() {
+        let mut clock = GameClock::new();
+        let one_sec = Duration::from_secs(1);
+        let ticks = clock.advance_by(one_sec);
+        assert_eq!(clock.elapsed().as_nanos() as u64, ticks as u64 * 33_333_333);
+    }
+
+    #[test]
+    fn elapsed_formatted_shows_seconds() {
+        let mut clock = GameClock::new();
+        clock.advance_by(Duration::from_secs(65));
+        assert_eq!(clock.elapsed_formatted(), "01:04");
+    }
+
+    #[test]
+    fn elapsed_formatted_shows_hours() {
+        let mut clock = GameClock::new();
+        clock.advance_by(Duration::from_secs(3661));
+        assert_eq!(clock.elapsed_formatted(), "01:01:00");
+    }
+
+    #[test]
+    fn elapsed_formatted_zero() {
+        let clock = GameClock::new();
+        assert_eq!(clock.elapsed_formatted(), "00:00");
+    }
+
+    #[test]
+    fn advance_by_30s_produces_900_ticks() {
+        let mut clock = GameClock::new();
+        assert_eq!(clock.advance_by(Duration::from_secs(30)), 900);
+        assert_eq!(clock.advance_by(Duration::from_secs(30)), 900);
+    }
+}

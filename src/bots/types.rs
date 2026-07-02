@@ -182,3 +182,103 @@ pub enum BotEvent {
     },
     BotMoved(BotSnapshot),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::point;
+
+    #[test]
+    fn for_scout_cycles_through_biases() {
+        let biases: Vec<_> = (0..8).map(ExplorationBias::for_scout).collect();
+        assert_eq!(biases[0], ExplorationBias::West);
+        assert_eq!(biases[1], ExplorationBias::East);
+        assert_eq!(biases[2], ExplorationBias::North);
+        assert_eq!(biases[3], ExplorationBias::South);
+        assert_eq!(biases[4], ExplorationBias::West);
+        assert_eq!(biases[5], ExplorationBias::East);
+    }
+
+    #[test]
+    fn penalty_west_increases_with_x() {
+        let base = point!(5, 5);
+        assert_eq!(ExplorationBias::West.penalty(point!(7, 5), base), 2);
+        assert_eq!(ExplorationBias::West.penalty(point!(3, 5), base), 0);
+    }
+
+    #[test]
+    fn penalty_east_increases_when_x_is_smaller() {
+        let base = point!(5, 5);
+        assert_eq!(ExplorationBias::East.penalty(point!(3, 5), base), 2);
+        assert_eq!(ExplorationBias::East.penalty(point!(7, 5), base), 0);
+    }
+
+    #[test]
+    fn penalty_north_increases_with_y() {
+        let base = point!(5, 5);
+        assert_eq!(ExplorationBias::North.penalty(point!(5, 7), base), 2);
+        assert_eq!(ExplorationBias::North.penalty(point!(5, 3), base), 0);
+    }
+
+    #[test]
+    fn penalty_south_increases_when_y_is_smaller() {
+        let base = point!(5, 5);
+        assert_eq!(ExplorationBias::South.penalty(point!(5, 3), base), 2);
+        assert_eq!(ExplorationBias::South.penalty(point!(5, 7), base), 0);
+    }
+
+    #[test]
+    fn step_bonus_rewards_moving_toward_bias() {
+        let base = point!(5, 5);
+        let from = point!(6, 5);
+        let toward = point!(5, 5);
+        let away = point!(7, 5);
+        assert_eq!(ExplorationBias::West.step_bonus(from, toward, base), 4);
+        assert_eq!(ExplorationBias::West.step_bonus(from, from, base), 1);
+        assert_eq!(ExplorationBias::West.step_bonus(toward, away, base), 0);
+    }
+
+    #[test]
+    fn scout_algorithm_previous_next_cycles() {
+        let mut a = ScoutAlgorithm::FrontierWavefront;
+        assert_eq!(a.previous(), ScoutAlgorithm::Dfs);
+        assert_eq!(a.next(), ScoutAlgorithm::AStarExploration);
+        a = ScoutAlgorithm::Dfs;
+        assert_eq!(a.next(), ScoutAlgorithm::FrontierWavefront);
+    }
+
+    #[test]
+    fn scout_algorithm_labels_are_distinct() {
+        let labels: std::collections::HashSet<&str> =
+            ScoutAlgorithm::ALL.iter().map(|a| a.label()).collect();
+        assert_eq!(labels.len(), ScoutAlgorithm::ALL.len());
+    }
+
+    #[test]
+    fn miner_algorithm_previous_next_cycles() {
+        let a = MinerAlgorithm::Bidirectional;
+        assert_eq!(a.next(), MinerAlgorithm::AStar);
+        assert_eq!(a.previous(), MinerAlgorithm::Dijkstra);
+    }
+
+    #[test]
+    fn miner_algorithm_labels_are_distinct() {
+        let labels: std::collections::HashSet<&str> =
+            MinerAlgorithm::ALL.iter().map(|a| a.label()).collect();
+        assert_eq!(labels.len(), MinerAlgorithm::ALL.len());
+    }
+
+    #[test]
+    fn assignment_strategy_previous_next_cycles() {
+        let s = AssignmentStrategy::WeightedByValue;
+        assert_eq!(s.next(), AssignmentStrategy::LeastAssigned);
+        assert_eq!(s.previous(), AssignmentStrategy::RoundRobin);
+    }
+
+    #[test]
+    fn assignment_strategy_labels_are_distinct() {
+        let labels: std::collections::HashSet<&str> =
+            AssignmentStrategy::ALL.iter().map(|a| a.label()).collect();
+        assert_eq!(labels.len(), AssignmentStrategy::ALL.len());
+    }
+}

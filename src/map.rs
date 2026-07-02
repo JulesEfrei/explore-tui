@@ -528,4 +528,246 @@ mod tests {
         assert_eq!(first.minerals(), second.minerals());
         assert_eq!(first.base_center(), second.base_center());
     }
+
+    #[test]
+    fn points_returns_all_coordinates() {
+        let map = Map::from_terrain_for_tests(3, 2, vec![Terrain::Plains; 6]);
+        let points = map.points();
+        assert_eq!(points.len(), 6);
+        assert!(points.contains(&point!(0, 0)));
+        assert!(points.contains(&point!(2, 1)));
+    }
+
+    #[test]
+    fn size_returns_dimensions() {
+        let map = Map::from_terrain_for_tests(5, 7, vec![Terrain::Plains; 35]);
+        assert_eq!(map.size(), (5, 7));
+    }
+
+    #[test]
+    fn terrain_at_valid_point() {
+        let map = Map::from_terrain_for_tests(
+            2,
+            2,
+            vec![
+                Terrain::Plains,
+                Terrain::Hills,
+                Terrain::Mountains,
+                Terrain::DeepWater,
+            ],
+        );
+        assert_eq!(map.terrain_at(point!(0, 0)), Some(Terrain::Plains));
+        assert_eq!(map.terrain_at(point!(1, 1)), Some(Terrain::DeepWater));
+    }
+
+    #[test]
+    fn terrain_at_out_of_bounds() {
+        let map = Map::from_terrain_for_tests(2, 2, vec![Terrain::Plains; 4]);
+        assert_eq!(map.terrain_at(point!(5, 5)), None);
+    }
+
+    #[test]
+    fn is_walkable_returns_false_for_deep_water() {
+        let map = Map::from_terrain_for_tests(1, 1, vec![Terrain::DeepWater]);
+        assert!(!map.is_walkable(point!(0, 0)));
+    }
+
+    #[test]
+    fn is_walkable_returns_false_for_mountains() {
+        let map = Map::from_terrain_for_tests(1, 1, vec![Terrain::Mountains]);
+        assert!(!map.is_walkable(point!(0, 0)));
+    }
+
+    #[test]
+    fn is_walkable_returns_true_for_plains() {
+        let map = Map::from_terrain_for_tests(1, 1, vec![Terrain::Plains]);
+        assert!(map.is_walkable(point!(0, 0)));
+    }
+
+    #[test]
+    fn is_walkable_returns_true_for_hills_and_shallow_water_and_base() {
+        for terrain in [Terrain::Hills, Terrain::ShallowWater, Terrain::Base] {
+            let map = Map::from_terrain_for_tests(1, 1, vec![terrain]);
+            assert!(
+                map.is_walkable(point!(0, 0)),
+                "{terrain:?} should be walkable"
+            );
+        }
+    }
+
+    #[test]
+    fn is_walkable_out_of_bounds() {
+        let map = Map::from_terrain_for_tests(1, 1, vec![Terrain::Plains]);
+        assert!(!map.is_walkable(point!(5, 5)));
+    }
+
+    #[test]
+    fn terrain_cost_plains_and_base() {
+        for terrain in [Terrain::Plains, Terrain::Base] {
+            let map = Map::from_terrain_for_tests(1, 1, vec![terrain]);
+            assert_eq!(map.terrain_cost(point!(0, 0)), Some(1));
+        }
+    }
+
+    #[test]
+    fn terrain_cost_hills_and_shallow_water() {
+        for terrain in [Terrain::Hills, Terrain::ShallowWater] {
+            let map = Map::from_terrain_for_tests(1, 1, vec![terrain]);
+            assert_eq!(map.terrain_cost(point!(0, 0)), Some(2));
+        }
+    }
+
+    #[test]
+    fn terrain_cost_impassable() {
+        for terrain in [Terrain::DeepWater, Terrain::Mountains] {
+            let map = Map::from_terrain_for_tests(1, 1, vec![terrain]);
+            assert_eq!(map.terrain_cost(point!(0, 0)), None);
+        }
+    }
+
+    #[test]
+    fn terrain_cost_out_of_bounds() {
+        let map = Map::from_terrain_for_tests(1, 1, vec![Terrain::Plains]);
+        assert_eq!(map.terrain_cost(point!(5, 5)), None);
+    }
+
+    #[test]
+    fn neighbors_includes_cardinal_walkable() {
+        let map = Map::from_terrain_for_tests(3, 3, vec![Terrain::Plains; 9]);
+        let neighbors = map.neighbors(point!(1, 1));
+        assert_eq!(neighbors.len(), 4);
+        assert!(neighbors.contains(&point!(0, 1)));
+        assert!(neighbors.contains(&point!(2, 1)));
+        assert!(neighbors.contains(&point!(1, 0)));
+        assert!(neighbors.contains(&point!(1, 2)));
+    }
+
+    #[test]
+    fn neighbors_excludes_impassable_terrain() {
+        let map = Map::from_terrain_for_tests(
+            3,
+            1,
+            vec![Terrain::Mountains, Terrain::Plains, Terrain::DeepWater],
+        );
+        let neighbors = map.neighbors(point!(1, 0));
+        assert_eq!(neighbors.len(), 0);
+    }
+
+    #[test]
+    fn neighbors_at_top_left_corner() {
+        let map = Map::from_terrain_for_tests(2, 2, vec![Terrain::Plains; 4]);
+        let neighbors = map.neighbors(point!(0, 0));
+        assert_eq!(neighbors.len(), 2);
+        assert!(neighbors.contains(&point!(1, 0)));
+        assert!(neighbors.contains(&point!(0, 1)));
+    }
+
+    #[test]
+    fn set_terrain_from_elevation_boundaries() {
+        let map = Map::from_terrain_for_tests(1, 1, vec![Terrain::Plains]);
+        assert_eq!(map.set_terrain_from_elevation(&0.29), Terrain::DeepWater);
+        assert_eq!(map.set_terrain_from_elevation(&0.30), Terrain::ShallowWater);
+        assert_eq!(map.set_terrain_from_elevation(&0.41), Terrain::ShallowWater);
+        assert_eq!(map.set_terrain_from_elevation(&0.42), Terrain::Plains);
+        assert_eq!(map.set_terrain_from_elevation(&0.62), Terrain::Plains);
+        assert_eq!(map.set_terrain_from_elevation(&0.63), Terrain::Hills);
+        assert_eq!(map.set_terrain_from_elevation(&0.81), Terrain::Hills);
+        assert_eq!(map.set_terrain_from_elevation(&0.82), Terrain::Mountains);
+        assert_eq!(map.set_terrain_from_elevation(&1.0), Terrain::Mountains);
+    }
+
+    #[test]
+    fn mineral_at_returns_none_without_minerals() {
+        let map = Map::from_terrain_for_tests(2, 2, vec![Terrain::Plains; 4]);
+        assert_eq!(map.mineral_at(point!(0, 0)), None);
+    }
+
+    #[test]
+    fn render_tile_from_terrain_all_variants() {
+        let map = Map::from_terrain_for_tests(1, 1, vec![Terrain::Plains]);
+        assert_eq!(map.render_tile_from_terrain(Terrain::DeepWater).0, "≈");
+        assert_eq!(map.render_tile_from_terrain(Terrain::ShallowWater).0, "~");
+        assert_eq!(map.render_tile_from_terrain(Terrain::Plains).0, ".");
+        assert_eq!(map.render_tile_from_terrain(Terrain::Hills).0, "^");
+        assert_eq!(map.render_tile_from_terrain(Terrain::Mountains).0, "▲");
+        assert_eq!(map.render_tile_from_terrain(Terrain::Base).0, "B");
+    }
+
+    #[test]
+    fn render_tile_from_mineral_all_variants() {
+        let map = Map::from_terrain_for_tests(1, 1, vec![Terrain::Plains]);
+        assert_eq!(map.render_tile_from_mineral(MineralKind::Energy).0, "E");
+        assert_eq!(map.render_tile_from_mineral(MineralKind::Diamond).0, "D");
+    }
+
+    #[test]
+    fn seeded_rng_determinism() {
+        let mut rng_a = SeededRng::new(42);
+        let mut rng_b = SeededRng::new(42);
+        for _ in 0..100 {
+            assert_eq!(rng_a.next_u32(), rng_b.next_u32());
+        }
+    }
+
+    #[test]
+    fn seeded_rng_range_usize() {
+        let mut rng = SeededRng::new(42);
+        for _ in 0..100 {
+            let v = rng.range_usize(5..10);
+            assert!((5..10).contains(&v));
+        }
+    }
+
+    #[test]
+    fn seeded_rng_range_u32_inclusive() {
+        let mut rng = SeededRng::new(42);
+        for _ in 0..100 {
+            let v = rng.range_u32_inclusive(3..=8);
+            assert!((3..=8).contains(&v));
+        }
+    }
+
+    #[test]
+    fn find_base_location_on_all_plains() {
+        let map = Map::from_terrain_for_tests(10, 10, vec![Terrain::Plains; 100]);
+        let base = map.find_base_location();
+        assert!(base.is_some(), "should find base on all-plains map");
+        if let Some(base) = base {
+            let (a, b, c, _) = base.coordinates;
+            assert_eq!(a.x + 1, b.x);
+            assert_eq!(a.y, b.y);
+            assert_eq!(a.x, c.x);
+            assert_eq!(a.y + 1, c.y);
+        }
+    }
+
+    #[test]
+    fn base_center_returns_none_when_no_base() {
+        let map = Map::from_terrain_for_tests(5, 5, vec![Terrain::Plains; 25]);
+        assert_eq!(map.base_center(), None);
+    }
+
+    #[test]
+    fn base_tiles_returns_none_when_no_base() {
+        let map = Map::from_terrain_for_tests(5, 5, vec![Terrain::Plains; 25]);
+        assert_eq!(map.base_tiles(), None);
+    }
+
+    #[test]
+    fn initialized_map_has_base() {
+        let map = initialized_map(42);
+        assert!(map.base_center().is_some());
+        assert!(map.base_tiles().is_some());
+    }
+
+    #[test]
+    fn initialized_map_has_minerals() {
+        let map = initialized_map(42);
+        let minerals = map.minerals();
+        assert!(!minerals.is_empty());
+        assert_eq!(
+            minerals.len() as u32,
+            map.options.energy_count + map.options.diamond_count,
+        );
+    }
 }

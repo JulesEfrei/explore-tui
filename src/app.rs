@@ -1,8 +1,10 @@
+use std::collections::HashMap;
 use std::error::Error;
 
 use crossterm::terminal;
 
 use crate::{
+    bots::{BotEvent, BotKind},
     map::Point,
     point,
     state::{Screen, State},
@@ -13,7 +15,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Padding, Paragraph},
+    widgets::{Block, Borders, Padding, Paragraph},
 };
 
 pub struct App {
@@ -49,8 +51,40 @@ impl App {
         })
     }
 
-    fn game_tick(&mut self) {
-        // placeholder — bot logic, channel processing, etc.
+    pub(crate) fn game_tick(&mut self) {
+        let Some(world) = self.state.game_world.as_mut() else {
+            return;
+        };
+
+        world.bot_manager.tick();
+        self.drain_bot_events();
+    }
+
+    pub(crate) fn drain_bot_events(&mut self) {
+        let Some(world) = self.state.game_world.as_mut() else {
+            return;
+        };
+
+        while let Ok(event) = world.from_bots_rx.try_recv() {
+            match event {
+                BotEvent::MineralFound { pos, kind, .. } => {
+                    world.record_known_mineral(pos, kind);
+                }
+                BotEvent::BotMoved(snapshot) => {
+                    world.bot_snapshots.insert(snapshot.id, snapshot);
+                }
+                BotEvent::MinerArrivedAtMineral { miner_id, pos } => {
+                    world.record_miner_arrival(miner_id, pos);
+                }
+                BotEvent::ResourcesDelivered {
+                    miner_id,
+                    pos,
+                    amount,
+                } => {
+                    world.record_resource_delivery(miner_id, pos, amount);
+                }
+            }
+        }
     }
 
     fn render(&self, frame: &mut ratatui::Frame) {
@@ -201,6 +235,36 @@ impl App {
             ("Quantité de diamants", options.diamond_count.to_string()),
             ("Niveau de détail du relief", options.octaves.to_string()),
             ("Taille des reliefs", format!("{:.3}", options.frequency)),
+            (
+                "Seed de génération",
+                options
+                    .seed
+                    .map_or_else(String::new, |seed| seed.to_string()),
+            ),
+            (
+                "Nombre de scouts",
+                self.state.bot_config.scout_count.to_string(),
+            ),
+            (
+                "Nombre de mineurs",
+                self.state.bot_config.miner_count.to_string(),
+            ),
+            (
+                "Algorithme des scouts",
+                self.state.bot_config.scout_algorithm.label().to_string(),
+            ),
+            (
+                "Algorithme des mineurs",
+                self.state.bot_config.miner_algorithm.label().to_string(),
+            ),
+            (
+                "Stratégie d'assignation",
+                self.state
+                    .bot_config
+                    .assignment_strategy
+                    .label()
+                    .to_string(),
+            ),
         ];
 
         let mut option_lines = Vec::new();
@@ -245,7 +309,7 @@ impl App {
 
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                "↑↓/jk naviguer  ←/h −  →/l +  enter jouer  esc/⌫ accueil",
+                "↑↓/jk naviguer  ←/h −  →/l +  seed: chiffres/⌫  enter jouer  esc accueil",
                 Style::default().fg(Color::Yellow),
             )))
             .alignment(Alignment::Center),
@@ -261,21 +325,24 @@ impl App {
             .constraints(vec![Constraint::Min(1), Constraint::Length(1)])
             .split(area);
 
-        let map_area = if self.state.game_render.show_minerals {
-            let side_layout = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints(vec![Constraint::Min(0), Constraint::Length(38)])
-                .split(layout[0]);
+        let side_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![Constraint::Min(1), Constraint::Length(38)])
+            .split(layout[0]);
+        let map_area = side_layout[0];
+        self.render_minerals_dialog(frame, side_layout[1]);
 
-            self.render_minerals_dialog(frame, side_layout[1]);
-            side_layout[0]
-        } else {
-            layout[0]
-        };
         let status_area = layout[1];
 
         let world = self.state.game_world.as_ref().unwrap();
         let map = &*world.map;
+        let mut bot_positions: HashMap<Point, Vec<_>> = HashMap::new();
+        for snapshot in world.bot_snapshots.values() {
+            bot_positions
+                .entry(snapshot.pos)
+                .or_default()
+                .push(*snapshot);
+        }
         let map_width = map.size().0;
         let map_height = map.size().1;
         let render_width = (map_area.width as usize).min(map_width);
@@ -287,8 +354,14 @@ impl App {
             let mut points = Vec::with_capacity(render_width);
             for x in 0..render_width {
                 let pos = point!(x, y);
-                let tile = if let Some(mineral) = map.mineral_at(pos) {
-                    map.render_tile_from_mineral(mineral.kind)
+                let tile = if let Some(bots) = bot_positions.get(&pos) {
+                    render_bots_tile(bots)
+                } else if let Some(mineral) = map.mineral_at(pos) {
+                    let (symbol, color) = map.render_tile_from_mineral(mineral.kind);
+                    let is_empty = world.known_minerals.iter().any(|known_mineral| {
+                        known_mineral.pos == pos && known_mineral.remaining == 0
+                    });
+                    (symbol, if is_empty { Color::Red } else { color })
                 } else if let Some(terrain) = map.terrain_at(pos) {
                     map.render_tile_from_terrain(terrain)
                 } else {
@@ -305,11 +378,50 @@ impl App {
 
         // Status bar
         let clock_str = world.clock.elapsed_formatted();
+        let scouts = world
+            .bot_snapshots
+            .values()
+            .filter(|snapshot| snapshot.kind == BotKind::Scout)
+            .count();
+        let miners = world
+            .bot_snapshots
+            .values()
+            .filter(|snapshot| snapshot.kind == BotKind::Miner)
+            .count();
+        let algorithms = format!(
+            " Seed: {}   Scout: {}   Miner: {} ",
+            map.seed(),
+            self.state.bot_config.scout_algorithm.label(),
+            self.state.bot_config.miner_algorithm.label()
+        );
         let status = if world.clock.is_paused() {
-            format!(" →/l +1s   ⏸ PAUSED   T + {} ", clock_str)
+            format!(
+                " →/l +1s   ⏸ PAUSED   T + {}   Scouts: {}   Miners: {}   Resources: {} ",
+                clock_str, scouts, miners, world.resources_at_base
+            )
         } else {
-            format!(" ▶ RUNNING   T + {} ", clock_str)
+            format!(
+                " ▶ RUNNING   T + {}   Scouts: {}   Miners: {}   Resources: {} ",
+                clock_str, scouts, miners, world.resources_at_base
+            )
         };
+        let status_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![
+                Constraint::Length((algorithms.chars().count() as u16).min(status_area.width)),
+                Constraint::Min(1),
+            ])
+            .split(status_area);
+
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                algorithms,
+                Style::default().fg(Color::Gray),
+            )))
+            .style(Style::default().bg(Color::DarkGray))
+            .alignment(Alignment::Left),
+            status_layout[0],
+        );
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 status,
@@ -317,7 +429,7 @@ impl App {
             )))
             .style(Style::default().bg(Color::DarkGray))
             .alignment(Alignment::Right),
-            status_area,
+            status_layout[1],
         );
     }
 
@@ -340,28 +452,43 @@ impl App {
             } else {
                 for (coordinates, mineral) in &minerals {
                     let (symbol, color) = map.render_tile_from_mineral(mineral.kind);
+                    let known = world
+                        .known_minerals
+                        .iter()
+                        .find(|known_mineral| known_mineral.pos == *coordinates);
+                    let left = known.map_or(mineral.value, |known_mineral| known_mineral.remaining);
+                    let assigned = known.map_or(0, |known_mineral| known_mineral.assigned_miners);
+                    let (status, status_color) = match known {
+                        Some(known_mineral) if known_mineral.remaining == 0 => {
+                            ("empty", Color::Red)
+                        }
+                        Some(_) => ("known", Color::Green),
+                        None => ("unknown", Color::Gray),
+                    };
+                    let symbol_color = if status == "empty" { Color::Red } else { color };
 
                     lines.push(Line::from(vec![
                         Span::styled(
                             symbol,
-                            Style::default().fg(color).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(symbol_color)
+                                .add_modifier(Modifier::BOLD),
                         ),
                         Span::raw(column_gap),
                         Span::raw(format!("({:>3}, {:>3})", coordinates.x, coordinates.y)),
                         Span::raw(column_gap),
-                        Span::raw(format!(
-                            "mined {:>2}",
-                            mineral.max_value.saturating_sub(mineral.value)
-                        )),
+                        Span::styled(status, Style::default().fg(status_color)),
                         Span::raw(column_gap),
-                        Span::raw(format!("left {:>2}", mineral.value)),
+                        Span::raw(format!("{:>2}/{}", left, mineral.max_value)),
+                        Span::raw(column_gap),
+                        Span::raw(format!("[{assigned}]")),
                     ]));
                 }
             }
         }
 
         let dialog_block = Block::new()
-            .borders(Borders::LEFT)
+            .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Magenta))
             .title(Line::from(Span::styled(
                 format!(" Minerals ({count}) "),
@@ -375,8 +502,10 @@ impl App {
         let visible_height = inner.height;
         let max_scroll = (lines.len() as u16).saturating_sub(visible_height);
 
-        let scroll = if count > 0 && self.state.game_render.minerals_focus.is_some() {
-            let focus = self.state.game_render.minerals_focus.unwrap().min(count - 1) as u16;
+        let scroll = if count > 0
+            && let Some(focus) = self.state.game_render.minerals_focus
+        {
+            let focus = focus.min(count.saturating_sub(1)) as u16;
 
             let highlight = Style::default()
                 .bg(Color::Magenta)
@@ -404,7 +533,6 @@ impl App {
         }
         .min(max_scroll);
 
-        frame.render_widget(Clear, area);
         frame.render_widget(
             Paragraph::new(lines)
                 .block(dialog_block)
@@ -412,6 +540,14 @@ impl App {
             area,
         );
     }
+}
+
+fn render_bots_tile(bots: &[crate::bots::BotSnapshot]) -> (String, Color) {
+    if bots.iter().any(|bot| bot.kind == BotKind::Miner) {
+        return (String::from('M'), Color::LightRed);
+    }
+
+    (String::from('S'), Color::White)
 }
 
 #[cfg(test)]

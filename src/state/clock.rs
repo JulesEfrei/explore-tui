@@ -9,7 +9,7 @@ pub struct GameClock {
     paused: bool,
 }
 
-const TICK_RATE_NANOS: u64 = 16_666_667; // ~60 Hz
+const TICK_RATE_NANOS: u64 = 33_333_333; // ~30 Hz
 const MAX_FRAME_TIME_MS: u64 = 100;
 
 impl GameClock {
@@ -55,13 +55,10 @@ impl GameClock {
         self.paused
     }
 
-    pub fn advance_by(&mut self, duration: Duration) {
+    pub fn advance_by(&mut self, duration: Duration) -> u32 {
         let ticks = (duration.as_nanos() / self.tick_rate.as_nanos()) as u64;
         self.tick_count += ticks;
-    }
-
-    pub fn reset_pause(&mut self) {
-        self.paused = false;
+        ticks as u32
     }
 
     pub fn elapsed_formatted(&self) -> String {

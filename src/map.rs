@@ -24,7 +24,7 @@ pub struct Mineral {
     pub max_value: u32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Point {
     pub x: usize,
     pub y: usize,
@@ -59,6 +59,36 @@ pub struct PerlinGenerator {
     perlin: Fbm<Perlin>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SeededRng {
+    state: u64,
+}
+
+impl SeededRng {
+    fn new(seed: u32) -> Self {
+        Self { state: seed as u64 }
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        self.state = self
+            .state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        (self.state >> 32) as u32
+    }
+
+    fn range_usize(&mut self, range: std::ops::Range<usize>) -> usize {
+        let len = range.end.saturating_sub(range.start);
+        range.start + (self.next_u32() as usize % len)
+    }
+
+    fn range_u32_inclusive(&mut self, range: std::ops::RangeInclusive<u32>) -> u32 {
+        let start = *range.start();
+        let len = range.end() - start + 1;
+        start + (self.next_u32() % len)
+    }
+}
+
 impl PerlinGenerator {
     pub fn new(seed: u32, octaves: usize, frequency: f64) -> Self {
         let noise = Fbm::<Perlin>::new(seed)
@@ -89,6 +119,7 @@ pub struct MapOptions {
     pub diamond_count: u32,
     pub octaves: usize,
     pub frequency: f64,
+    pub seed: Option<u32>,
 }
 
 impl Default for MapOptions {
@@ -98,6 +129,7 @@ impl Default for MapOptions {
             diamond_count: 6,
             octaves: 2,
             frequency: 0.02,
+            seed: None,
         }
     }
 }
@@ -107,6 +139,7 @@ pub struct Map {
     width: usize,
     height: usize,
     options: MapOptions,
+    base: Option<Base>,
     pub elevation_map: Vec<f64>,
     terrain_map: Vec<Terrain>,
     mineral_map: Vec<Option<Mineral>>,
@@ -136,8 +169,42 @@ impl Map {
         (self.width, self.height)
     }
 
+    pub fn points(&self) -> Vec<Point> {
+        let mut points = Vec::with_capacity(self.width * self.height);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                points.push(point!(x, y));
+            }
+        }
+        points
+    }
+
+    pub fn base_center(&self) -> Option<Point> {
+        let base = self.base.as_ref()?;
+        Some(point!(
+            (base.coordinates.0.x + base.coordinates.1.x) / 2,
+            (base.coordinates.0.y + base.coordinates.2.y) / 2
+        ))
+    }
+
+    pub fn base_tiles(&self) -> Option<[Point; 4]> {
+        let base = self.base.as_ref()?;
+        Some([
+            base.coordinates.0,
+            base.coordinates.1,
+            base.coordinates.2,
+            base.coordinates.3,
+        ])
+    }
+
     pub fn set_options(&mut self, options: MapOptions) {
         self.options = options;
+    }
+
+    pub fn seed(&self) -> u32 {
+        self.options
+            .seed
+            .expect("map seed should be resolved during initialization")
     }
 
     pub fn minerals(&self) -> Vec<(Point, Mineral)> {
@@ -153,10 +220,10 @@ impl Map {
         minerals
     }
 
-    fn try_place_mineral(&mut self, kind: MineralKind, value: u32) {
+    fn try_place_mineral(&mut self, kind: MineralKind, value: u32, rng: &mut SeededRng) {
         for _ in 0..10 {
-            let x = rand::random_range(0..self.width);
-            let y = rand::random_range(0..self.height);
+            let x = rng.range_usize(0..self.width);
+            let y = rng.range_usize(0..self.height);
             let idx = y * self.width + x;
 
             let terrain = self.terrain_map[idx];
@@ -176,17 +243,26 @@ impl Map {
     }
 
     pub fn initialize(&mut self) {
+        let seed = self
+            .options
+            .seed
+            .unwrap_or_else(PerlinGenerator::random_seed);
+        let mut attempt = 0;
         loop {
-            self.create_elevation_map();
+            let generation_seed = seed.wrapping_add(attempt);
+            self.create_elevation_map(generation_seed);
             self.create_terrain_from_elevation();
             if let Some(base) = self.find_base_location() {
+                self.options.seed = Some(generation_seed);
                 let b = base.coordinates;
                 self.set_terrain_at(b.0, Terrain::Base);
                 self.set_terrain_at(b.1, Terrain::Base);
                 self.set_terrain_at(b.2, Terrain::Base);
                 self.set_terrain_at(b.3, Terrain::Base);
+                self.base = Some(base);
                 break;
             }
+            attempt = attempt.wrapping_add(1);
         }
         self.create_minerals();
     }
@@ -246,18 +322,29 @@ impl Map {
             width,
             height,
             options: MapOptions::default(),
+            base: None,
             elevation_map: Vec::with_capacity(width * height),
             terrain_map: Vec::with_capacity(width * height),
             mineral_map: vec![None; width * height],
         }
     }
 
-    fn create_elevation_map(&mut self) {
-        let generator = PerlinGenerator::new(
-            PerlinGenerator::random_seed(),
-            self.options.octaves,
-            self.options.frequency,
-        );
+    #[cfg(test)]
+    pub fn from_terrain_for_tests(width: usize, height: usize, terrain_map: Vec<Terrain>) -> Self {
+        assert_eq!(terrain_map.len(), width * height);
+        Self {
+            width,
+            height,
+            options: MapOptions::default(),
+            base: None,
+            elevation_map: vec![0.5; width * height],
+            terrain_map,
+            mineral_map: vec![None; width * height],
+        }
+    }
+
+    fn create_elevation_map(&mut self, seed: u32) {
+        let generator = PerlinGenerator::new(seed, self.options.octaves, self.options.frequency);
         self.elevation_map = Self::generate_elevation_map(self.width, self.height, &generator);
     }
 
@@ -273,13 +360,16 @@ impl Map {
 
     fn create_minerals(&mut self) {
         self.mineral_map = vec![None; self.width * self.height];
+        let mut rng = SeededRng::new(self.seed().wrapping_add(0x9E37_79B9));
 
         for _ in 0..self.options.energy_count {
-            self.try_place_mineral(MineralKind::Energy, rand::random_range(3..=8));
+            let value = rng.range_u32_inclusive(3..=8);
+            self.try_place_mineral(MineralKind::Energy, value, &mut rng);
         }
 
         for _ in 0..self.options.diamond_count {
-            self.try_place_mineral(MineralKind::Diamond, rand::random_range(2..=5));
+            let value = rng.range_u32_inclusive(2..=5);
+            self.try_place_mineral(MineralKind::Diamond, value, &mut rng);
         }
     }
 
@@ -288,28 +378,51 @@ impl Map {
         self.mineral_map[idx]
     }
 
-    fn mine_at(&mut self, coordinates: Point) -> Option<MineralKind> {
-        let idx = self.get_index_from_coordinates(coordinates)?;
-        let mineral = self.mineral_map[idx].as_mut()?;
-
-        mineral.value = mineral.value.saturating_sub(1);
-        let kind = mineral.kind;
-
-        if mineral.value == 0 {
-            self.mineral_map[idx] = None;
-        }
-
-        Some(kind)
-    }
-
     pub fn terrain_at(&self, coordinates: Point) -> Option<Terrain> {
-        let index = self.get_index_from_coordinates(coordinates).unwrap();
+        let index = self.get_index_from_coordinates(coordinates)?;
 
         if index >= self.terrain_map.len() {
             return None;
         }
 
         Some(self.terrain_map[index])
+    }
+
+    pub fn is_walkable(&self, coordinates: Point) -> bool {
+        !matches!(
+            self.terrain_at(coordinates),
+            None | Some(Terrain::DeepWater) | Some(Terrain::Mountains)
+        )
+    }
+
+    pub fn terrain_cost(&self, coordinates: Point) -> Option<u32> {
+        match self.terrain_at(coordinates)? {
+            Terrain::DeepWater | Terrain::Mountains => None,
+            Terrain::Plains | Terrain::Base => Some(1),
+            Terrain::Hills => Some(2),
+            Terrain::ShallowWater => Some(2),
+        }
+    }
+
+    pub fn neighbors(&self, coordinates: Point) -> Vec<Point> {
+        let mut neighbors = Vec::with_capacity(4);
+        let candidates = [
+            (coordinates.x.checked_sub(1), Some(coordinates.y)),
+            (Some(coordinates.x + 1), Some(coordinates.y)),
+            (Some(coordinates.x), coordinates.y.checked_sub(1)),
+            (Some(coordinates.x), Some(coordinates.y + 1)),
+        ];
+
+        for (x, y) in candidates {
+            if let (Some(x), Some(y)) = (x, y) {
+                let point = point!(x, y);
+                if self.is_walkable(point) {
+                    neighbors.push(point);
+                }
+            }
+        }
+
+        neighbors
     }
 
     fn set_terrain_at(&mut self, coordinates: Point, terrain: Terrain) {
@@ -389,5 +502,30 @@ impl Map {
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn initialized_map(seed: u32) -> Map {
+        let mut map = Map::new(80, 24);
+        map.set_options(MapOptions {
+            seed: Some(seed),
+            ..MapOptions::default()
+        });
+        map.initialize();
+        map
+    }
+
+    #[test]
+    fn same_seed_replays_same_map() {
+        let first = initialized_map(12345);
+        let second = initialized_map(12345);
+
+        assert_eq!(first.terrain_map, second.terrain_map);
+        assert_eq!(first.minerals(), second.minerals());
+        assert_eq!(first.base_center(), second.base_center());
     }
 }

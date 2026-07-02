@@ -42,11 +42,20 @@ impl App {
 
     fn handle_options_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {
         match code {
-            KeyCode::Esc | KeyCode::Backspace => self.state.update(Action::GoHome),
+            KeyCode::Esc => self.state.update(Action::GoHome),
+            KeyCode::Backspace if self.state.is_seed_option_selected() => {
+                self.state.delete_seed_digit();
+            }
+            KeyCode::Backspace => self.state.update(Action::GoHome),
             KeyCode::Up | KeyCode::Char('k') => self.state.update(Action::SelectPreviousOption),
             KeyCode::Down | KeyCode::Char('j') => self.state.update(Action::SelectNextOption),
             KeyCode::Left | KeyCode::Char('h') => self.state.update(Action::DecreaseOption),
             KeyCode::Right | KeyCode::Char('l') => self.state.update(Action::IncreaseOption),
+            KeyCode::Char(digit)
+                if self.state.is_seed_option_selected() && digit.is_ascii_digit() =>
+            {
+                self.state.append_seed_digit(digit);
+            }
             KeyCode::Enter => self.state.update(Action::StartGame),
             _ => {}
         }
@@ -57,16 +66,15 @@ impl App {
         match code {
             KeyCode::Char('h') => self.state.update(Action::GoHome),
             KeyCode::Char('r') => self.state.update(Action::StartGame),
-            KeyCode::Char('m') => self.state.update(Action::ToggleMinerals),
             KeyCode::Char(' ') => self.state.update(Action::TogglePause),
-            KeyCode::Right | KeyCode::Char('l') => {
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Char('L') => {
                 if self
                     .state
                     .game_world
                     .as_ref()
-                    .map_or(false, |w| w.clock.is_paused())
+                    .is_some_and(|w| w.clock.is_paused())
                 {
-                    self.state.update(Action::AdvanceClock);
+                    self.advance_paused_game(Duration::from_secs(1));
                 }
             }
             _ => {
@@ -77,6 +85,19 @@ impl App {
             }
         }
         Ok(false)
+    }
+
+    fn advance_paused_game(&mut self, duration: Duration) {
+        let Some(world) = self.state.game_world.as_mut() else {
+            return;
+        };
+
+        let ticks = world.clock.advance_by(duration);
+        for _ in 0..ticks {
+            self.game_tick();
+        }
+        std::thread::sleep(Duration::from_millis(20));
+        self.drain_bot_events();
     }
 
     fn handle_game_map_key(&mut self, code: KeyCode) -> Result<bool, Box<dyn Error>> {

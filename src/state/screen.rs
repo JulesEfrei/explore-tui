@@ -16,7 +16,6 @@ pub enum Action {
     StartGame,
     GoHome,
     GoOptions,
-    ToggleMinerals,
     FocusMinerals,
     FocusMap,
     ScrollMineralsUp,
@@ -26,5 +25,4 @@ pub enum Action {
     DecreaseOption,
     IncreaseOption,
     TogglePause,
-    AdvanceClock,
 }
